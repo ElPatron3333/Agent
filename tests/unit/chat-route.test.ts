@@ -1,6 +1,15 @@
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { POST } from "../../src/app/api/chat/route";
+
+const AUDIT_LOG_PATH = path.join(
+  process.cwd(),
+  ".smithii-local",
+  "audit-log.json",
+);
 
 function jsonRequest(body: unknown, cookie?: string) {
   return new Request("http://localhost/api/chat", {
@@ -269,6 +278,59 @@ describe("/api/chat route", () => {
     expect(await responseJson(replayResponse)).toEqual({
       error: "Invalid pending plan.",
     });
+  });
+
+  it("records bundle launch preview and confirm calls in the local audit log", async () => {
+    rmSync(AUDIT_LOG_PATH, { force: true });
+
+    const previewResponse = await POST(
+      jsonRequest({
+        message: "no",
+        draft: {
+          tool: "bundle_launch",
+          data: completeLaunchDraftData(),
+        },
+        launchWalletSelection: {
+          devWalletPubkey: "DevWallet...91nP",
+          bundleWallets: [{ pubkey: "BndlWallet...4kd9", buyAmountSol: 0.1 }],
+        },
+      }),
+    );
+    const preview = await responseJson(previewResponse);
+    const cookie = cookieHeaderFrom(previewResponse);
+
+    const confirmResponse = await POST(
+      jsonRequest(
+        {
+          message: "confirm",
+          pendingPlan: preview.pendingPlan,
+        },
+        cookie,
+      ),
+    );
+
+    expect(confirmResponse.status).toBe(200);
+    expect(existsSync(AUDIT_LOG_PATH)).toBe(true);
+
+    const records = JSON.parse(
+      readFileSync(AUDIT_LOG_PATH, "utf8"),
+    ) as Array<Record<string, unknown>>;
+
+    expect(records).toMatchObject([
+      {
+        event: "preview_prepared",
+        tool: "bundle_launch",
+        planId: "plan_bundle_launch_1_0_10",
+        outcome: "Waiting for confirm",
+      },
+      {
+        event: "mock_executed",
+        tool: "bundle_launch",
+        planId: "plan_bundle_launch_1_0_10",
+      },
+    ]);
+    expect(JSON.stringify(records)).not.toContain("privateKey");
+    expect(JSON.stringify(records)).not.toContain("signature");
   });
 
   it("rejects pending plans with unknown tools", async () => {

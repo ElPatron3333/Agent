@@ -43,10 +43,25 @@ type PlanRecord = {
   status: "pending" | "consumed";
 };
 
+type AuditLogRecord = {
+  id: string;
+  createdAt: string;
+  sessionId: string;
+  event: "preview_prepared" | "mock_executed";
+  tool: PendingPlan["tool"];
+  planId: string;
+  outcome: string;
+};
+
 const PLAN_RECORDS_PATH = path.join(
   process.cwd(),
   ".smithii-local",
   "plan-records.json",
+);
+const AUDIT_LOG_PATH = path.join(
+  process.cwd(),
+  ".smithii-local",
+  "audit-log.json",
 );
 
 export async function POST(request: Request) {
@@ -112,6 +127,7 @@ export async function POST(request: Request) {
     launchWalletSelection,
     globalSettings: normalizeGlobalSettings(body.globalSettings),
   });
+  appendAuditRecord(auditRecordForResult(result, sessionId, pendingPlan));
   if (pendingPlan) {
     consumePlanRecord(sessionId, pendingPlan);
   }
@@ -376,6 +392,71 @@ function signPendingPlanInResult(
     ...result,
     pendingPlan,
   };
+}
+
+function auditRecordForResult(
+  result: MockChatResult,
+  sessionId: string,
+  consumedPlan: PendingPlan | null,
+): AuditLogRecord | null {
+  if (result.pendingPlan) {
+    return {
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      sessionId,
+      event: "preview_prepared",
+      tool: result.pendingPlan.tool,
+      planId: result.pendingPlan.id,
+      outcome: result.executionStatus,
+    };
+  }
+
+  if (consumedPlan && isExecutionOutcome(result.executionStatus)) {
+    return {
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      sessionId,
+      event: "mock_executed",
+      tool: consumedPlan.tool,
+      planId: consumedPlan.id,
+      outcome: result.executionStatus,
+    };
+  }
+
+  return null;
+}
+
+function isExecutionOutcome(executionStatus: string) {
+  return (
+    executionStatus === "Mock swap signature returned" ||
+    executionStatus === "Volume bot started" ||
+    executionStatus.endsWith("... returned")
+  );
+}
+
+function appendAuditRecord(record: AuditLogRecord | null) {
+  if (!record) {
+    return;
+  }
+
+  writeAuditLog([...readAuditLog(), record]);
+}
+
+function readAuditLog(): AuditLogRecord[] {
+  if (!existsSync(AUDIT_LOG_PATH)) {
+    return [];
+  }
+
+  try {
+    return JSON.parse(readFileSync(AUDIT_LOG_PATH, "utf8")) as AuditLogRecord[];
+  } catch {
+    return [];
+  }
+}
+
+function writeAuditLog(records: AuditLogRecord[]) {
+  mkdirSync(path.dirname(AUDIT_LOG_PATH), { recursive: true });
+  writeFileSync(AUDIT_LOG_PATH, JSON.stringify(records, null, 2));
 }
 
 function signPendingPlan(pendingPlan: PendingPlan): PendingPlan {
