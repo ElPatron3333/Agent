@@ -1,7 +1,7 @@
 "use client";
 
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type {
   ActivePreview,
@@ -14,6 +14,7 @@ import {
   chatErrorStateForResponse,
   nextActivePreview,
 } from "@/lib/agent/client-chat-state";
+import type { AuditLogRecord } from "@/lib/audit-log-types";
 import type { GlobalSettings } from "@/lib/smithii/types";
 import { BundleLaunchPreview } from "@/components/previews/bundle-launch-preview";
 import {
@@ -68,7 +69,9 @@ export function SmithiiAgentApp() {
   const [walletRoster, setWalletRoster] = useState<BrowserWalletEntry[]>(
     createDemoWalletRoster,
   );
-  const [input, setInput] = useState("launch a token with 3 bundle wallets");
+  const [input, setInput] = useState(
+    "launch a token called Blue Frog with a 3-wallet bundle",
+  );
   const [pendingPlan, setPendingPlan] = useState<PendingPlan | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [globalSettings, setGlobalSettings] = useState<GlobalSettings>(
@@ -77,10 +80,28 @@ export function SmithiiAgentApp() {
   const [activePreview, setActivePreview] =
     useState<ActivePreview | null>(defaultPreview);
   const [executionStatus, setExecutionStatus] = useState("Waiting for preview");
+  const [auditLog, setAuditLog] = useState<AuditLogRecord[]>([]);
   const [walletImportStatus, setWalletImportStatus] =
     useState("Private keys stay in browser state.");
   const [isSending, setIsSending] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    void refreshAuditLog();
+  }, []);
+
+  async function refreshAuditLog() {
+    try {
+      const response = await fetch("/api/audit-log");
+      if (!response.ok) {
+        return;
+      }
+      const body = (await response.json()) as { records?: AuditLogRecord[] };
+      setAuditLog(body.records ?? []);
+    } catch {
+      setAuditLog([]);
+    }
+  }
 
   function updateGlobalSettings(
     updater: (current: GlobalSettings) => GlobalSettings,
@@ -142,6 +163,7 @@ export function SmithiiAgentApp() {
       setDraft(result.draft);
       setActivePreview((current) => nextActivePreview(result, current));
       setExecutionStatus(result.executionStatus);
+      void refreshAuditLog();
     } catch (error) {
       const message =
         error instanceof Error &&
@@ -409,6 +431,52 @@ export function SmithiiAgentApp() {
                 <PreviewRow label="Draft" value={draftSummary(draft)} />
               </Panel>
 
+              <Panel className="mt-4" title="Audit Log">
+                <div className="space-y-3">
+                  {auditLog.slice(-4).reverse().map((record) => (
+                    <div
+                      key={record.id}
+                      className="rounded-md border border-cyan-950/70 bg-black/40 p-3 text-sm"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium text-slate-100">
+                          {auditEventLabel(record.event)}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {record.tool}
+                        </span>
+                      </div>
+                      <p className="mt-2 truncate text-xs text-cyan-200">
+                        {record.planId}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {record.outcome}
+                      </p>
+                    </div>
+                  ))}
+                  {auditLog.length === 0 ? (
+                    <p className="text-sm text-slate-400">No audit records</p>
+                  ) : null}
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    className="h-9 rounded-md border border-cyan-700 px-3 text-sm font-semibold text-cyan-100"
+                    type="button"
+                    onClick={() => void refreshAuditLog()}
+                  >
+                    Refresh
+                  </button>
+                  <button
+                    className="h-9 rounded-md border border-cyan-700 px-3 text-sm font-semibold text-cyan-100"
+                    type="button"
+                    onClick={() => exportAuditLog(auditLog)}
+                    disabled={auditLog.length === 0}
+                  >
+                    Export JSON
+                  </button>
+                </div>
+              </Panel>
+
               <Panel className="mt-4" title="Global Settings">
                 <div className="space-y-4">
                   <div>
@@ -510,6 +578,22 @@ function getInitialGlobalSettings() {
   }
 
   return readStoredGlobalSettings(window.sessionStorage);
+}
+
+function exportAuditLog(records: AuditLogRecord[]) {
+  const blob = new Blob([JSON.stringify(records, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "smithii-agent-audit-log.json";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function auditEventLabel(event: AuditLogRecord["event"]) {
+  return event === "mock_executed" ? "Mock executed" : "Preview prepared";
 }
 
 async function responseErrorMessage(response: Response) {

@@ -149,6 +149,11 @@ export function handleMockChat({
   }
 
   if (isLaunchIntent(normalized)) {
+    const draft = buildLaunchDraftFromIntent(message);
+    if (draft.data.tokenName) {
+      return askForLaunchField("What symbol should I use?", draft);
+    }
+
     return {
       assistantMessage: {
         role: "assistant",
@@ -157,7 +162,7 @@ export function handleMockChat({
       pendingPlan: null,
       activePreview: null,
       executionStatus: "Collecting launch fields",
-      draft: { tool: "bundle_launch", data: {} },
+      draft,
     };
   }
 
@@ -495,6 +500,43 @@ function collectBundleLaunchField({
     launchWalletSelection,
     globalSettings,
   );
+}
+
+function buildLaunchDraftFromIntent(message: string): BundleLaunchDraft {
+  return {
+    tool: "bundle_launch",
+    data: {
+      ...parseLaunchIntentTokenName(message),
+      ...parseLaunchIntentWalletCount(message),
+    },
+  };
+}
+
+function parseLaunchIntentTokenName(message: string) {
+  const match = message.match(
+    /\b(?:called|named)\s+(.+?)(?:\s+with\b|\s+using\b|\s+for\b|$)/i,
+  );
+  if (!match?.[1]) {
+    return {};
+  }
+
+  return {
+    tokenName: match[1].trim().replace(/[.?!,;:]+$/, ""),
+  };
+}
+
+function parseLaunchIntentWalletCount(message: string) {
+  const match = message.match(/\b(\d{1,2})\s*[- ]?(?:bundle\s*)?wallets?\b/i);
+  if (!match?.[1]) {
+    return {};
+  }
+
+  const walletCount = Number.parseInt(match[1], 10);
+  if (!Number.isInteger(walletCount) || walletCount < 1 || walletCount > 15) {
+    return {};
+  }
+
+  return { walletCount };
 }
 
 function askForLaunchField(text: string, draft: BundleLaunchDraft): MockChatResult {

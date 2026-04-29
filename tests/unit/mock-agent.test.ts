@@ -21,6 +21,25 @@ describe("mock chat agent", () => {
     expect(result.executionStatus).toBe("Collecting launch fields");
   });
 
+  it("prefills launch draft fields from a natural-language launch request", () => {
+    const result = handleMockChat({
+      message: "launch a token called Blue Frog with a 5-wallet bundle",
+      now,
+    });
+
+    expect(result.assistantMessage.text).toBe("What symbol should I use?");
+    expect(result.draft).toEqual({
+      tool: "bundle_launch",
+      data: {
+        tokenName: "Blue Frog",
+        walletCount: 5,
+      },
+    });
+    expect(result.pendingPlan).toBeNull();
+    expect(result.activePreview).toBeNull();
+    expect(result.executionStatus).toBe("Collecting launch fields");
+  });
+
   it("collects bundle launch fields one at a time before preparing a preview", () => {
     const named = handleMockChat({
       message: "Blue Frog",

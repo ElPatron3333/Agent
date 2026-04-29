@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -281,8 +281,6 @@ describe("/api/chat route", () => {
   });
 
   it("records bundle launch preview and confirm calls in the local audit log", async () => {
-    rmSync(AUDIT_LOG_PATH, { force: true });
-
     const previewResponse = await POST(
       jsonRequest({
         message: "no",
@@ -298,6 +296,7 @@ describe("/api/chat route", () => {
     );
     const preview = await responseJson(previewResponse);
     const cookie = cookieHeaderFrom(previewResponse);
+    const sessionId = sessionIdFromCookie(cookie);
 
     const confirmResponse = await POST(
       jsonRequest(
@@ -312,9 +311,10 @@ describe("/api/chat route", () => {
     expect(confirmResponse.status).toBe(200);
     expect(existsSync(AUDIT_LOG_PATH)).toBe(true);
 
-    const records = JSON.parse(
+    const allRecords = JSON.parse(
       readFileSync(AUDIT_LOG_PATH, "utf8"),
     ) as Array<Record<string, unknown>>;
+    const records = allRecords.filter((record) => record.sessionId === sessionId);
 
     expect(records).toMatchObject([
       {
@@ -360,6 +360,10 @@ function cookieHeaderFrom(response: Response) {
   }
 
   return setCookie.split(";")[0];
+}
+
+function sessionIdFromCookie(cookie: string) {
+  return cookie.split("=")[1];
 }
 
 function completeLaunchDraftData() {
