@@ -46,3 +46,6 @@ _*.log
 
 # local mock server state
 .smithii-local/
+
+# local feature worktrees
+.worktrees/
