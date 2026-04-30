@@ -1,8 +1,17 @@
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
+  createHash,
+  createHmac,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
+import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  renameSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -16,7 +25,11 @@ import {
   type Draft,
   type PendingPlan,
 } from "@/lib/agent/mock-chat";
-import { appendAuditRecord, auditRecordForResult } from "@/lib/audit-log";
+import {
+  appendAuditRecord,
+  auditRecordForRejectedPendingPlan,
+  auditRecordForResult,
+} from "@/lib/audit-log";
 import { normalizeGlobalSettings } from "@/lib/global-settings";
 import type { LaunchWalletSelection } from "@/lib/wallet-roster";
 
@@ -44,11 +57,12 @@ type PlanRecord = {
   status: "pending" | "consumed";
 };
 
-const PLAN_RECORDS_PATH = path.join(
+const LEGACY_PLAN_RECORDS_PATH = path.join(
   process.cwd(),
   ".smithii-local",
   "plan-records.json",
 );
+const PLAN_RECORDS_DIR = path.join(process.cwd(), ".smithii-local", "plan-records");
 
 export async function POST(request: Request) {
   let parsedBody: unknown;
@@ -78,6 +92,13 @@ export async function POST(request: Request) {
   const sessionId = getOrCreateSessionId(request);
   const pendingPlan = parseIncomingPendingPlan(body.pendingPlan, sessionId);
   if (pendingPlan === "invalid") {
+    appendAuditRecord(
+      auditRecordForRejectedPendingPlan({
+        pendingPlan: body.pendingPlan,
+        sessionId,
+        outcome: "Invalid pending plan.",
+      }),
+    );
     return NextResponse.json(
       { error: "Invalid pending plan." },
       { status: 400 },
@@ -106,6 +127,20 @@ export async function POST(request: Request) {
     );
   }
 
+  if (pendingPlan && !claimPlanRecord(sessionId, pendingPlan)) {
+    appendAuditRecord(
+      auditRecordForRejectedPendingPlan({
+        pendingPlan,
+        sessionId,
+        outcome: "Invalid pending plan.",
+      }),
+    );
+    return NextResponse.json(
+      { error: "Invalid pending plan." },
+      { status: 400 },
+    );
+  }
+
   const result = handleMockChat({
     message: body.message,
     pendingPlan,
@@ -120,9 +155,6 @@ export async function POST(request: Request) {
       consumedPlan: pendingPlan,
     }),
   );
-  if (pendingPlan) {
-    consumePlanRecord(sessionId, pendingPlan);
-  }
 
   const response = NextResponse.json(signPendingPlanInResult(result, sessionId));
   response.cookies.set(SESSION_COOKIE_NAME, sessionId, {
@@ -413,55 +445,138 @@ function signPlanPayload(pendingPlan: Omit<PendingPlan, "signature">) {
     .digest("base64url");
 }
 
-function consumePlanRecord(sessionId: string, pendingPlan: PendingPlan) {
-  const key = planRecordKey(sessionId, pendingPlan.id);
-  const record = readPlanRecords()[key];
-  if (!record) {
-    return;
+function getPlanRecord(sessionId: string, planId: string) {
+  const recordPath = planRecordPath(sessionId, planId);
+  if (existsSync(recordPath)) {
+    return readPlanRecordFile(recordPath);
   }
 
-  writePlanRecords({
-    ...readPlanRecords(),
-    [key]: {
-      ...record,
-      status: "consumed",
-    },
-  });
-}
-
-function getPlanRecord(sessionId: string, planId: string) {
-  return readPlanRecords()[planRecordKey(sessionId, planId)];
+  return readLegacyPlanRecords()[planRecordKey(sessionId, planId)] ?? null;
 }
 
 function setPlanRecord(sessionId: string, planId: string, record: PlanRecord) {
-  writePlanRecords({
-    ...readPlanRecords(),
-    [planRecordKey(sessionId, planId)]: record,
-  });
+  writePlanRecordFile(planRecordPath(sessionId, planId), record);
 }
 
-function readPlanRecords(): Record<string, PlanRecord> {
-  if (!existsSync(PLAN_RECORDS_PATH)) {
+function claimPlanRecord(sessionId: string, pendingPlan: PendingPlan) {
+  const recordPath = planRecordPath(sessionId, pendingPlan.id);
+  const lockPath = `${recordPath}.lock`;
+  mkdirSync(path.dirname(recordPath), { recursive: true });
+
+  let lockHandle: number;
+  try {
+    lockHandle = openSync(lockPath, "wx");
+  } catch {
+    return false;
+  }
+
+  try {
+    const record = getPlanRecord(sessionId, pendingPlan.id);
+    if (!record || !planRecordMatches(record, pendingPlan)) {
+      return false;
+    }
+    if (record.status !== "pending") {
+      return false;
+    }
+
+    writePlanRecordFile(recordPath, {
+      ...record,
+      status: "consumed",
+    });
+    return true;
+  } finally {
+    closeSync(lockHandle);
+    try {
+      unlinkSync(lockPath);
+    } catch {
+    }
+  }
+}
+
+function readPlanRecordFile(recordPath: string): PlanRecord | null {
+  try {
+    const parsed = JSON.parse(readFileSync(recordPath, "utf8"));
+    if (isPlanRecord(parsed)) {
+      return parsed;
+    }
+  } catch {
+    quarantineFile(recordPath);
+    return null;
+  }
+
+  quarantineFile(recordPath);
+  return null;
+}
+
+function writePlanRecordFile(recordPath: string, record: PlanRecord) {
+  mkdirSync(path.dirname(recordPath), { recursive: true });
+  const tempPath = `${recordPath}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tempPath, JSON.stringify(record, null, 2));
+  renameSync(tempPath, recordPath);
+}
+
+function readLegacyPlanRecords(): Record<string, PlanRecord> {
+  if (!existsSync(LEGACY_PLAN_RECORDS_PATH)) {
     return {};
   }
 
   try {
-    return JSON.parse(readFileSync(PLAN_RECORDS_PATH, "utf8")) as Record<
-      string,
-      PlanRecord
-    >;
+    const parsed = JSON.parse(readFileSync(LEGACY_PLAN_RECORDS_PATH, "utf8"));
+    if (!isRecord(parsed)) {
+      quarantineFile(LEGACY_PLAN_RECORDS_PATH);
+      return {};
+    }
+
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, PlanRecord] => isPlanRecord(entry[1]),
+      ),
+    );
   } catch {
+    quarantineFile(LEGACY_PLAN_RECORDS_PATH);
     return {};
   }
 }
 
-function writePlanRecords(records: Record<string, PlanRecord>) {
-  mkdirSync(path.dirname(PLAN_RECORDS_PATH), { recursive: true });
-  writeFileSync(PLAN_RECORDS_PATH, JSON.stringify(records, null, 2));
-}
-
 function planRecordKey(sessionId: string, planId: string) {
   return `${sessionId}:${planId}`;
+}
+
+function planRecordPath(sessionId: string, planId: string) {
+  const digest = createHash("sha256")
+    .update(planRecordKey(sessionId, planId))
+    .digest("hex");
+  return path.join(PLAN_RECORDS_DIR, `${digest}.json`);
+}
+
+function planRecordMatches(record: PlanRecord | null, pendingPlan: PendingPlan) {
+  return (
+    record?.pendingPlan.id === pendingPlan.id &&
+    record.pendingPlan.tool === pendingPlan.tool &&
+    record.pendingPlan.createdAt === pendingPlan.createdAt &&
+    record.pendingPlan.signature === pendingPlan.signature
+  );
+}
+
+function isPlanRecord(value: unknown): value is PlanRecord {
+  return (
+    isRecord(value) &&
+    (value.status === "pending" || value.status === "consumed") &&
+    isRecord(value.pendingPlan) &&
+    typeof value.pendingPlan.id === "string" &&
+    PENDING_PLAN_TOOLS.has(String(value.pendingPlan.tool)) &&
+    typeof value.pendingPlan.createdAt === "number" &&
+    Number.isFinite(value.pendingPlan.createdAt) &&
+    typeof value.pendingPlan.signature === "string"
+  );
+}
+
+function quarantineFile(filePath: string) {
+  try {
+    renameSync(filePath, `${filePath}.corrupt-${Date.now()}`);
+  } catch {
+    return;
+  }
 }
 
 function getOrCreateSessionId(request: Request) {

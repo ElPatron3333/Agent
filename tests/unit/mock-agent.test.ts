@@ -40,6 +40,81 @@ describe("mock chat agent", () => {
     expect(result.executionStatus).toBe("Collecting launch fields");
   });
 
+  it("keeps prefilled wallet count through the full launch preview flow", () => {
+    const started = handleMockChat({
+      message: "launch a token called Blue Frog with a 5-wallet bundle",
+      now,
+    });
+    const symbol = handleMockChat({
+      message: "BFROG",
+      now,
+      draft: started.draft,
+    });
+    const description = handleMockChat({
+      message: "A blue frog community token.",
+      now,
+      draft: symbol.draft,
+    });
+    const solAmount = handleMockChat({
+      message: "0.1",
+      now,
+      draft: description.draft,
+    });
+    const image = handleMockChat({
+      message: "blue-frog.png",
+      now,
+      draft: solAmount.draft,
+    });
+    const socials = handleMockChat({
+      message: "no",
+      now,
+      draft: image.draft,
+    });
+    const cashback = handleMockChat({
+      message: "no",
+      now,
+      draft: socials.draft,
+    });
+    const differentBlocks = handleMockChat({
+      message: "yes",
+      now,
+      draft: cashback.draft,
+    });
+    const preview = handleMockChat({
+      message: "no",
+      now,
+      draft: differentBlocks.draft,
+    });
+
+    expect(preview.pendingPlan?.tool).toBe("bundle_launch");
+    expect(preview.activePreview?.kind).toBe("bundle_launch");
+    expect(
+      preview.activePreview?.kind === "bundle_launch"
+        ? preview.activePreview.bundleWallets
+        : [],
+    ).toHaveLength(5);
+  });
+
+  it("does not truncate token names that contain delimiter words", () => {
+    const withName = handleMockChat({
+      message: "launch a token called Built With Love with a 2-wallet bundle",
+      now,
+    });
+    const forName = handleMockChat({
+      message: "launch a token named Tokens for Friends with a 2-wallet bundle",
+      now,
+    });
+
+    expect(withName.draft?.data).toMatchObject({
+      tokenName: "Built With Love",
+      walletCount: 2,
+    });
+    expect(forName.draft?.data).toMatchObject({
+      tokenName: "Tokens for Friends",
+      walletCount: 2,
+    });
+  });
+
   it("collects bundle launch fields one at a time before preparing a preview", () => {
     const named = handleMockChat({
       message: "Blue Frog",

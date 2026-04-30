@@ -443,7 +443,7 @@ export function SmithiiAgentApp() {
                           {auditEventLabel(record.event)}
                         </span>
                         <span className="text-xs text-slate-500">
-                          {record.tool}
+                          {record.tool ?? "unknown"}
                         </span>
                       </div>
                       <p className="mt-2 truncate text-xs text-cyan-200">
@@ -593,7 +593,17 @@ function exportAuditLog(records: AuditLogRecord[]) {
 }
 
 function auditEventLabel(event: AuditLogRecord["event"]) {
-  return event === "mock_executed" ? "Mock executed" : "Preview prepared";
+  if (event === "mock_executed") {
+    return "Mock executed";
+  }
+  if (event === "confirmation_rejected") {
+    return "Confirm rejected";
+  }
+  if (event === "confirmation_expired") {
+    return "Confirm expired";
+  }
+
+  return "Preview prepared";
 }
 
 async function responseErrorMessage(response: Response) {

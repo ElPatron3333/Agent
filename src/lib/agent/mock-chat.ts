@@ -514,7 +514,7 @@ function buildLaunchDraftFromIntent(message: string): BundleLaunchDraft {
 
 function parseLaunchIntentTokenName(message: string) {
   const match = message.match(
-    /\b(?:called|named)\s+(.+?)(?:\s+with\b|\s+using\b|\s+for\b|$)/i,
+    /\b(?:called|named)\s+(.+?)(?=\s+(?:with|using|for)\s+(?:a\s+|an\s+)?\d{1,2}\s*[- ]?(?:bundle\s*)?wallets?\b|$)/i,
   );
   if (!match?.[1]) {
     return {};

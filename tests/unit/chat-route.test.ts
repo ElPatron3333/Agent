@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { POST } from "../../src/app/api/chat/route";
 
@@ -27,6 +27,10 @@ async function responseJson(response: Response) {
 }
 
 describe("/api/chat route", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("rejects empty messages", async () => {
     const response = await POST(jsonRequest({ message: "" }));
 
@@ -79,21 +83,33 @@ describe("/api/chat route", () => {
   });
 
   it("rejects forged pending plans that were not signed by the route", async () => {
+    const cookie = `smithii_agent_session=reject-${Date.now()}`;
     const response = await POST(
-      jsonRequest({
-        message: "confirm",
-        pendingPlan: {
-          id: "forged_plan",
-          tool: "bundle_launch",
-          createdAt: Date.now(),
+      jsonRequest(
+        {
+          message: "confirm",
+          pendingPlan: {
+            id: "forged_plan",
+            tool: "bundle_launch",
+            createdAt: Date.now(),
+          },
         },
-      }),
+        cookie,
+      ),
     );
 
     expect(response.status).toBe(400);
     expect(await responseJson(response)).toEqual({
       error: "Invalid pending plan.",
     });
+    expect(auditRecordsForSession(sessionIdFromCookie(cookie))).toContainEqual(
+      expect.objectContaining({
+        event: "confirmation_rejected",
+        planId: "forged_plan",
+        tool: "bundle_launch",
+        outcome: "Invalid pending plan.",
+      }),
+    );
   });
 
   it("signs and stores route-issued pending plans for the current session", async () => {
@@ -311,10 +327,7 @@ describe("/api/chat route", () => {
     expect(confirmResponse.status).toBe(200);
     expect(existsSync(AUDIT_LOG_PATH)).toBe(true);
 
-    const allRecords = JSON.parse(
-      readFileSync(AUDIT_LOG_PATH, "utf8"),
-    ) as Array<Record<string, unknown>>;
-    const records = allRecords.filter((record) => record.sessionId === sessionId);
+    const records = auditRecordsForSession(sessionId);
 
     expect(records).toMatchObject([
       {
@@ -331,6 +344,54 @@ describe("/api/chat route", () => {
     ]);
     expect(JSON.stringify(records)).not.toContain("privateKey");
     expect(JSON.stringify(records)).not.toContain("signature");
+  });
+
+  it("records expired confirmation attempts in the local audit log", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-30T00:00:00.000Z"));
+
+    const previewResponse = await POST(
+      jsonRequest({
+        message: "no",
+        draft: {
+          tool: "bundle_launch",
+          data: completeLaunchDraftData(),
+        },
+        launchWalletSelection: {
+          devWalletPubkey: "DevWallet...91nP",
+          bundleWallets: [{ pubkey: "BndlWallet...4kd9", buyAmountSol: 0.1 }],
+        },
+      }),
+    );
+    const preview = await responseJson(previewResponse);
+    const cookie = cookieHeaderFrom(previewResponse);
+    const sessionId = sessionIdFromCookie(cookie);
+
+    vi.setSystemTime(new Date("2026-04-30T00:06:00.000Z"));
+
+    const expiredResponse = await POST(
+      jsonRequest(
+        {
+          message: "confirm",
+          pendingPlan: preview.pendingPlan,
+        },
+        cookie,
+      ),
+    );
+
+    expect(expiredResponse.status).toBe(200);
+    expect(await responseJson(expiredResponse)).toMatchObject({
+      executionStatus: "Preview expired",
+      pendingPlan: null,
+    });
+    expect(auditRecordsForSession(sessionId)).toContainEqual(
+      expect.objectContaining({
+        event: "confirmation_expired",
+        tool: "bundle_launch",
+        planId: "plan_bundle_launch_1_0_10",
+        outcome: "Preview expired",
+      }),
+    );
   });
 
   it("rejects pending plans with unknown tools", async () => {
@@ -364,6 +425,26 @@ function cookieHeaderFrom(response: Response) {
 
 function sessionIdFromCookie(cookie: string) {
   return cookie.split("=")[1];
+}
+
+function auditRecordsForSession(sessionId: string) {
+  if (!existsSync(AUDIT_LOG_PATH)) {
+    return [];
+  }
+
+  const content = readFileSync(AUDIT_LOG_PATH, "utf8").trim();
+  if (!content) {
+    return [];
+  }
+
+  const records = content.startsWith("[")
+    ? (JSON.parse(content) as Array<Record<string, unknown>>)
+    : content
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+  return records.filter((record) => record.sessionId === sessionId);
 }
 
 function completeLaunchDraftData() {

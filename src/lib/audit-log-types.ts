@@ -4,8 +4,12 @@ export type AuditLogRecord = {
   id: string;
   createdAt: string;
   sessionId: string;
-  event: "preview_prepared" | "mock_executed";
-  tool: PendingPlan["tool"];
-  planId: string;
+  event:
+    | "preview_prepared"
+    | "mock_executed"
+    | "confirmation_rejected"
+    | "confirmation_expired";
+  tool?: PendingPlan["tool"];
+  planId?: string;
   outcome: string;
 };
