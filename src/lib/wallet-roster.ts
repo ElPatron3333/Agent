@@ -26,6 +26,10 @@ export type SwapWalletSelection = {
   }>;
 };
 
+export type VolumeWalletSelection = {
+  volumeWalletPubkey: string;
+};
+
 export function createDemoWalletRoster(): BrowserWalletEntry[] {
   return [
     {
@@ -147,6 +151,24 @@ export function buildSwapWalletSelection({
       solBalance: wallet.solBalance,
       tokenBalance: wallet.tokenBalance,
     })),
+  };
+}
+
+export function buildVolumeWalletSelection({
+  roster,
+}: {
+  roster: BrowserWalletEntry[];
+}): VolumeWalletSelection {
+  const volumeWallet = roster
+    .filter((wallet) => wallet.role === "bundle")
+    .sort(compareSelectionPriority)[0];
+
+  if (!volumeWallet) {
+    throw new Error("A bundle wallet is required for Volume Bot.");
+  }
+
+  return {
+    volumeWalletPubkey: volumeWallet.pubkey,
   };
 }
 

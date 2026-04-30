@@ -621,10 +621,71 @@ describe("mock chat agent", () => {
     expect(overrides.draft).toBeNull();
   });
 
-  it("routes a volume request to a volume bot preview", () => {
+  it("starts a volume draft from a top-level volume request", () => {
     const result = handleMockChat({
       message: "start a volume bot with sell strategy",
       now,
+    });
+
+    expect(result.assistantMessage.text).toBe(
+      "What token address should the Volume Bot trade?",
+    );
+    expect(result.executionStatus).toBe("Collecting volume fields");
+    expect(result.pendingPlan).toBeNull();
+    expect(result.activePreview).toBeNull();
+    expect(result.draft).toEqual({
+      tool: "volume_bot",
+      data: {},
+    });
+  });
+
+  it("collects volume bot fields before preparing a roster-backed preview", () => {
+    const started = handleMockChat({
+      message: "volume bot",
+      now,
+    });
+    const token = handleMockChat({
+      message: "Mint111",
+      now,
+      draft: started.draft,
+    });
+    const makers = handleMockChat({
+      message: "200",
+      now,
+      draft: token.draft,
+    });
+    const orderRange = handleMockChat({
+      message: "0.01 to 0.02",
+      now,
+      draft: makers.draft,
+    });
+    const delay = handleMockChat({
+      message: "10 to 20",
+      now,
+      draft: orderRange.draft,
+    });
+    const onPurchase = handleMockChat({
+      message: "auto sell",
+      now,
+      draft: delay.draft,
+    });
+    const sellTiming = handleMockChat({
+      message: "after each",
+      now,
+      draft: onPurchase.draft,
+    });
+    const sellMode = handleMockChat({
+      message: "sell strategy",
+      now,
+      draft: sellTiming.draft,
+    });
+    const preview = handleMockChat({
+      message: "1 to 33 percent, 10 to 20 seconds",
+      now,
+      draft: sellMode.draft,
+      volumeWalletSelection: {
+        volumeWalletPubkey: "VolumeWallet...5sTq",
+      },
       globalSettings: {
         speed: "turbo",
         jitoTip: 0.004,
@@ -633,16 +694,94 @@ describe("mock chat agent", () => {
       },
     });
 
-    expect(result.assistantMessage.text).toContain("Volume Bot preview");
-    expect(result.pendingPlan?.tool).toBe("volume_bot");
-    expect(result.activePreview?.kind).toBe("volume_bot");
-    expect(result.activePreview).toMatchObject({
+    expect(preview.assistantMessage.text).toContain("Volume Bot preview");
+    expect(preview.pendingPlan).toEqual({
+      id: "bot_volume_200_Mint111",
+      tool: "volume_bot",
+      createdAt: now,
+    });
+    expect(preview.activePreview).toMatchObject({
+      kind: "volume_bot",
+      botId: "bot_volume_200_Mint111",
+      tokenAddress: "Mint111",
+      volumeWalletPubkey: "VolumeWallet...5sTq",
+      makers: 200,
+      orderAmount: { minSol: 0.01, maxSol: 0.02 },
+      delaySeconds: { min: 10, max: 20 },
+      onPurchase: "auto_sell",
+      sellTiming: "after_each",
+      sellMode: "sell_strategy",
+      serviceFeeSol: 0.05,
+      estimatedTotalFeesSol: 3.05,
+      expectedDurationText: "200 makers, 10-20s delay",
       globalSettings: {
         speed: "turbo",
         jitoTip: 0.004,
         mevProtection: false,
         slippagePct: 5,
       },
+    });
+    expect(
+      preview.activePreview?.kind === "volume_bot"
+        ? preview.activePreview.sellStrategy?.legs
+        : [],
+    ).toEqual([
+      {
+        sellPct: { min: 1, max: 33 },
+        delaySeconds: { min: 10, max: 20 },
+      },
+    ]);
+    expect(preview.draft).toBeNull();
+  });
+
+  it("prepares a sell-100 volume bot preview without asking for strategy legs", () => {
+    const result = handleMockChat({
+      message: "sell 100",
+      now,
+      draft: {
+        tool: "volume_bot",
+        data: {
+          tokenAddress: "Mint111",
+          makers: 100,
+          orderAmount: { minSol: 0.02, maxSol: 0.04 },
+          delaySeconds: { min: 15, max: 30 },
+          onPurchase: "return_to_wallet",
+          sellTiming: "after_all",
+        },
+      },
+      volumeWalletSelection: {
+        volumeWalletPubkey: "VolumeWallet...5sTq",
+      },
+    });
+
+    expect(result.pendingPlan?.tool).toBe("volume_bot");
+    expect(result.activePreview).toMatchObject({
+      kind: "volume_bot",
+      sellMode: "sell_100",
+      sellStrategy: undefined,
+    });
+  });
+
+  it("executes a pending volume bot and returns mock run status", () => {
+    const executed = handleMockChat({
+      message: "confirm",
+      now: now + 60_000,
+      pendingPlan: {
+        id: "bot_volume_200_Mint111",
+        tool: "volume_bot",
+        createdAt: now,
+      },
+    });
+
+    expect(executed.assistantMessage.text).toContain("Mock Volume Bot started");
+    expect(executed.executionStatus).toBe("Volume bot started");
+    expect(executed.volumeBotRun).toEqual({
+      runId: "run_bot_volume_200_Mint111",
+      status: "started",
+      state: "running",
+      makersDone: 40,
+      volumeDoneSol: 0.6,
+      solConsumed: 0.6,
     });
   });
 
@@ -691,15 +830,14 @@ describe("mock chat agent", () => {
   });
 
   it("expires a pending plan after five minutes", () => {
-    const prepared = handleMockChat({
-      message: "volume bot",
-      now,
-    });
-
     const expired = handleMockChat({
       message: "start",
       now: now + 301_000,
-      pendingPlan: prepared.pendingPlan,
+      pendingPlan: {
+        id: "bot_volume_100_Mint111",
+        tool: "volume_bot",
+        createdAt: now,
+      },
     });
 
     expect(expired.assistantMessage.text).toBe(

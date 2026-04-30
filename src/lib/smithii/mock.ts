@@ -1,6 +1,7 @@
 import type {
   BundleLaunchInput,
   BundleSwapInput,
+  VolumeBotStatus,
   VolumeBotInput,
 } from "./types";
 import { resolveMockBundleSwapRouting } from "./token-routing";
@@ -177,12 +178,7 @@ function hashString(value: string) {
 }
 
 export function prepareVolumeBot(input: VolumeBotInput) {
-  if (
-    input.sellMode === "sell_strategy" &&
-    (!input.sellStrategy || input.sellStrategy.legs.length === 0)
-  ) {
-    throw new Error("Sell strategy is required when sell mode is sell_strategy.");
-  }
+  validateVolumeBotInput(input);
 
   const smithiiServiceFeeSol = roundSol(
     (input.makers / 100) * VOLUME_FEE_PER_100_MAKERS_SOL,
@@ -203,6 +199,63 @@ export function prepareVolumeBot(input: VolumeBotInput) {
   };
 }
 
+function validateVolumeBotInput(input: VolumeBotInput) {
+  if (!input.volumeWalletPubkey.trim()) {
+    throw new Error("Volume Bot wallet public key is required.");
+  }
+  if (!input.tokenAddress.trim()) {
+    throw new Error("Volume Bot token address is required.");
+  }
+  if (
+    !Number.isInteger(input.makers) ||
+    input.makers < 1 ||
+    input.makers > 10000
+  ) {
+    throw new Error("Volume Bot makers must be a whole number from 1 to 10000.");
+  }
+  if (!isPositiveRange(input.orderAmount.minSol, input.orderAmount.maxSol)) {
+    throw new Error("Volume Bot order amount must be a positive min/max SOL range.");
+  }
+  if (!isPositiveRange(input.delaySeconds.min, input.delaySeconds.max)) {
+    throw new Error("Volume Bot delay must be a positive min/max second range.");
+  }
+
+  if (
+    input.sellMode === "sell_strategy" &&
+    (!input.sellStrategy || input.sellStrategy.legs.length === 0)
+  ) {
+    throw new Error("Sell strategy is required when sell mode is sell_strategy.");
+  }
+
+  if (input.sellMode === "sell_strategy") {
+    for (const leg of input.sellStrategy.legs) {
+      if (
+        !isPositiveRange(leg.sellPct.min, leg.sellPct.max) ||
+        leg.sellPct.max > 100
+      ) {
+        throw new Error(
+          "Volume Bot sell strategy percentages must be 1-100 min/max ranges.",
+        );
+      }
+      if (!isPositiveRange(leg.delaySeconds.min, leg.delaySeconds.max)) {
+        throw new Error(
+          "Volume Bot sell strategy delays must be positive min/max second ranges.",
+        );
+      }
+    }
+  }
+}
+
+function isPositiveRange(min: number, max: number) {
+  return (
+    Number.isFinite(min) &&
+    Number.isFinite(max) &&
+    min > 0 &&
+    max > 0 &&
+    min <= max
+  );
+}
+
 export function executeBundleLaunch({ planId }: { planId: string }) {
   return {
     mintAddress: "MockMint1111111111111111111111111111111111",
@@ -221,5 +274,29 @@ export function executeVolumeBot({ botId }: { botId: string }) {
   return {
     runId: `run_${botId}`,
     status: "started" as const,
+  };
+}
+
+export function getVolumeBotStatus({ runId }: { runId: string }): VolumeBotStatus {
+  const makers = Number.parseInt(
+    runId.match(/run_bot_volume_(\d+)_/)?.[1] ?? "100",
+    10,
+  );
+  const makersDone = Math.max(1, Math.floor(makers * 0.2));
+  const volumeDoneSol = roundSol(makersDone * 0.015);
+
+  return {
+    state: "running",
+    makersDone,
+    volumeDoneSol,
+    solConsumed: volumeDoneSol,
+  };
+}
+
+export function pauseVolumeBot({ runId }: { runId: string }) {
+  void runId;
+
+  return {
+    status: "paused" as const,
   };
 }

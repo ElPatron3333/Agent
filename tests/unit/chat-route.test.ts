@@ -464,6 +464,108 @@ describe("/api/chat route", () => {
     }
   });
 
+  it("accepts volume bot drafts with a public volume wallet selection and records the audit log", async () => {
+    const previewResponse = await POST(
+      jsonRequest({
+        message: "1 to 33 percent, 10 to 20 seconds",
+        draft: {
+          tool: "volume_bot",
+          data: completeVolumeDraftData(),
+        },
+        volumeWalletSelection: {
+          volumeWalletPubkey: "VolumeWallet...5sTq",
+        },
+      }),
+    );
+    const preview = await responseJson(previewResponse);
+    const cookie = cookieHeaderFrom(previewResponse);
+    const sessionId = sessionIdFromCookie(cookie);
+
+    expect(previewResponse.status).toBe(200);
+    expect(JSON.stringify(preview)).not.toContain("privateKey");
+    expect(preview.pendingPlan).toMatchObject({
+      id: "bot_volume_200_Mint111",
+      tool: "volume_bot",
+    });
+    expect(preview.pendingPlan).toHaveProperty("signature");
+    expect(preview.activePreview).toMatchObject({
+      kind: "volume_bot",
+      tokenAddress: "Mint111",
+      volumeWalletPubkey: "VolumeWallet...5sTq",
+      makers: 200,
+      sellMode: "sell_strategy",
+    });
+
+    const confirmResponse = await POST(
+      jsonRequest(
+        {
+          message: "confirm",
+          pendingPlan: preview.pendingPlan,
+        },
+        cookie,
+      ),
+    );
+
+    expect(confirmResponse.status).toBe(200);
+    expect(await responseJson(confirmResponse)).toMatchObject({
+      executionStatus: "Volume bot started",
+      volumeBotRun: {
+        runId: "run_bot_volume_200_Mint111",
+        state: "running",
+      },
+    });
+    expect(auditRecordsForSession(sessionId)).toMatchObject([
+      {
+        event: "preview_prepared",
+        tool: "volume_bot",
+        outcome: "Waiting for confirm",
+      },
+      {
+        event: "mock_executed",
+        tool: "volume_bot",
+        outcome: "Volume bot started",
+      },
+    ]);
+  });
+
+  it("rejects volume bot drafts outside route-level numeric limits", async () => {
+    for (const data of [
+      { ...completeVolumeDraftData(), makers: 0 },
+      { ...completeVolumeDraftData(), makers: 10001 },
+      { ...completeVolumeDraftData(), orderAmount: { minSol: 0.2, maxSol: 0.1 } },
+      { ...completeVolumeDraftData(), delaySeconds: { min: 20, max: 10 } },
+      {
+        ...completeVolumeDraftData(),
+        sellStrategy: {
+          legs: [
+            {
+              sellPct: { min: 0, max: 33 },
+              delaySeconds: { min: 10, max: 20 },
+            },
+          ],
+        },
+      },
+    ]) {
+      const response = await POST(
+        jsonRequest({
+          message: "skip",
+          draft: {
+            tool: "volume_bot",
+            data,
+          },
+          volumeWalletSelection: {
+            volumeWalletPubkey: "VolumeWallet...5sTq",
+          },
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await responseJson(response)).toEqual({
+        error: "Invalid draft.",
+      });
+    }
+  });
+
   it("does not consume a pending plan on non-confirm draft requests", async () => {
     const previewResponse = await POST(
       jsonRequest({
@@ -643,5 +745,25 @@ function completeSwapDraftData() {
     quantityMode: { type: "fixed", perTxSol: 0.2 },
     txCount: 2,
     txDelayBlocks: 1,
+  };
+}
+
+function completeVolumeDraftData() {
+  return {
+    tokenAddress: "Mint111",
+    makers: 200,
+    orderAmount: { minSol: 0.01, maxSol: 0.02 },
+    delaySeconds: { min: 10, max: 20 },
+    onPurchase: "auto_sell",
+    sellTiming: "after_each",
+    sellMode: "sell_strategy",
+    sellStrategy: {
+      legs: [
+        {
+          sellPct: { min: 1, max: 33 },
+          delaySeconds: { min: 10, max: 20 },
+        },
+      ],
+    },
   };
 }

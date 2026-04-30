@@ -2,6 +2,7 @@ import {
   executeBundleLaunch,
   executeBundleSwap,
   executeVolumeBot,
+  getVolumeBotStatus,
   prepareBundleLaunch,
   prepareBundleSwap,
   prepareVolumeBot,
@@ -11,10 +12,13 @@ import type {
   BundleSwapInput,
   BundleSwapPerTxOverrides,
   GlobalSettings,
+  VolumeBotInput,
+  VolumeBotStatus,
 } from "@/lib/smithii/types";
 import type {
   LaunchWalletSelection,
   SwapWalletSelection,
+  VolumeWalletSelection,
 } from "@/lib/wallet-roster";
 
 export type ChatRole = "user" | "assistant";
@@ -68,7 +72,24 @@ export type BundleSwapDraft = {
   };
 };
 
-export type Draft = BundleLaunchDraft | BundleSwapDraft;
+export type VolumeBotDraft = {
+  tool: "volume_bot";
+  data: {
+    tokenAddress?: string;
+    makers?: number;
+    orderAmount?: VolumeBotInput["orderAmount"];
+    delaySeconds?: VolumeBotInput["delaySeconds"];
+    onPurchase?: VolumeBotInput["onPurchase"];
+    sellTiming?: VolumeBotInput["sellTiming"];
+    sellMode?: VolumeBotInput["sellMode"];
+    sellStrategy?: Extract<
+      VolumeBotInput,
+      { sellMode: "sell_strategy" }
+    >["sellStrategy"];
+  };
+};
+
+export type Draft = BundleLaunchDraft | BundleSwapDraft | VolumeBotDraft;
 
 export type ActivePreview =
   | {
@@ -128,9 +149,21 @@ export type ActivePreview =
   | {
       kind: "volume_bot";
       botId: string;
+      tokenAddress: string;
+      volumeWalletPubkey: string;
       makers: number;
+      orderAmount: VolumeBotInput["orderAmount"];
+      delaySeconds: VolumeBotInput["delaySeconds"];
+      onPurchase: VolumeBotInput["onPurchase"];
+      sellTiming: VolumeBotInput["sellTiming"];
+      sellMode: VolumeBotInput["sellMode"];
+      sellStrategy?: Extract<
+        VolumeBotInput,
+        { sellMode: "sell_strategy" }
+      >["sellStrategy"];
       serviceFeeSol: number;
       estimatedTotalFeesSol: number;
+      expectedDurationText: string;
       globalSettings: GlobalSettings;
       summary: string;
     };
@@ -142,8 +175,14 @@ export type MockChatInput = {
   draft?: Draft | null;
   launchWalletSelection?: LaunchWalletSelection | null;
   swapWalletSelection?: SwapWalletSelection | null;
+  volumeWalletSelection?: VolumeWalletSelection | null;
   globalSettings?: GlobalSettings | null;
 };
+
+export type VolumeBotRun = {
+  runId: string;
+  status: "started";
+} & VolumeBotStatus;
 
 export type MockChatResult = {
   assistantMessage: ChatMessage;
@@ -151,6 +190,7 @@ export type MockChatResult = {
   activePreview: ActivePreview | null;
   executionStatus: string;
   draft: Draft | null;
+  volumeBotRun?: VolumeBotRun;
 };
 
 const PLAN_TTL_MS = 5 * 60 * 1000;
@@ -162,6 +202,7 @@ export function handleMockChat({
   draft = null,
   launchWalletSelection = null,
   swapWalletSelection = null,
+  volumeWalletSelection = null,
   globalSettings = null,
 }: MockChatInput): MockChatResult {
   const normalized = message.trim().toLowerCase();
@@ -187,12 +228,25 @@ export function handleMockChat({
     });
   }
 
+  if (draft?.tool === "volume_bot") {
+    return collectVolumeBotField({
+      draft,
+      rawMessage: message.trim(),
+      now,
+      volumeWalletSelection,
+      globalSettings: resolvedGlobalSettings,
+    });
+  }
+
   if (isConfirmIntent(normalized)) {
     return executePendingPlan({ pendingPlan, now });
   }
 
   if (isVolumeIntent(normalized)) {
-    return prepareVolumePreview(now, resolvedGlobalSettings);
+    return askForVolumeField("What token address should the Volume Bot trade?", {
+      tool: "volume_bot",
+      data: {},
+    });
   }
 
   if (isSwapIntent(normalized)) {
@@ -319,6 +373,7 @@ function executePendingPlan({
   }
 
   const execution = executeVolumeBot({ botId: pendingPlan.id });
+  const status = getVolumeBotStatus({ runId: execution.runId });
 
   return {
     assistantMessage: {
@@ -329,6 +384,10 @@ function executePendingPlan({
     activePreview: null,
     executionStatus: `Volume bot ${execution.status}`,
     draft: null,
+    volumeBotRun: {
+      ...execution,
+      ...status,
+    },
   };
 }
 
@@ -941,29 +1000,199 @@ function prepareSwapPreview(
   };
 }
 
+function collectVolumeBotField({
+  draft,
+  rawMessage,
+  now,
+  volumeWalletSelection,
+  globalSettings,
+}: {
+  draft: VolumeBotDraft;
+  rawMessage: string;
+  now: number;
+  volumeWalletSelection: VolumeWalletSelection | null;
+  globalSettings: GlobalSettings;
+}): MockChatResult {
+  const nextDraft: VolumeBotDraft = {
+    tool: "volume_bot",
+    data: { ...draft.data },
+  };
+
+  if (!nextDraft.data.tokenAddress) {
+    if (!rawMessage.trim()) {
+      return askForVolumeField(
+        "What token address should the Volume Bot trade?",
+        nextDraft,
+      );
+    }
+    nextDraft.data.tokenAddress = rawMessage.trim();
+
+    return askForVolumeField("How many makers should I run? Use 1-10000.", nextDraft);
+  }
+
+  if (!nextDraft.data.makers) {
+    const makers = Number.parseInt(rawMessage, 10);
+    if (!Number.isInteger(makers) || makers < 1 || makers > 10000) {
+      return askForVolumeField(
+        "Maker count must be a whole number from 1 to 10000.",
+        nextDraft,
+      );
+    }
+    nextDraft.data.makers = makers;
+
+    return askForVolumeField(
+      "What SOL order amount range should I use? Example: 0.01 to 0.02.",
+      nextDraft,
+    );
+  }
+
+  if (!nextDraft.data.orderAmount) {
+    const range = parseNumberRange(rawMessage);
+    if (!range) {
+      return askForVolumeField(
+        "Order amount must be a positive SOL min/max range. Example: 0.01 to 0.02.",
+        nextDraft,
+      );
+    }
+    nextDraft.data.orderAmount = {
+      minSol: range.min,
+      maxSol: range.max,
+    };
+
+    return askForVolumeField(
+      "What delay range should I use between orders? Example: 10 to 20 seconds.",
+      nextDraft,
+    );
+  }
+
+  if (!nextDraft.data.delaySeconds) {
+    const range = parseNumberRange(rawMessage);
+    if (!range) {
+      return askForVolumeField(
+        "Delay must be a positive min/max second range. Example: 10 to 20.",
+        nextDraft,
+      );
+    }
+    nextDraft.data.delaySeconds = {
+      min: range.min,
+      max: range.max,
+    };
+
+    return askForVolumeField(
+      "After purchases, should Smithii auto sell or return tokens to wallet?",
+      nextDraft,
+    );
+  }
+
+  if (!nextDraft.data.onPurchase) {
+    const onPurchase = parseVolumeOnPurchase(rawMessage);
+    if (!onPurchase) {
+      return askForVolumeField(
+        "Reply auto sell or return to wallet for purchase handling.",
+        nextDraft,
+      );
+    }
+    nextDraft.data.onPurchase = onPurchase;
+
+    return askForVolumeField("Sell after each purchase or after all purchases?", nextDraft);
+  }
+
+  if (!nextDraft.data.sellTiming) {
+    const sellTiming = parseVolumeSellTiming(rawMessage);
+    if (!sellTiming) {
+      return askForVolumeField(
+        "Reply after each or after all for sell timing.",
+        nextDraft,
+      );
+    }
+    nextDraft.data.sellTiming = sellTiming;
+
+    return askForVolumeField(
+      "Use sell strategy or sell 100? Reply sell strategy or sell 100.",
+      nextDraft,
+    );
+  }
+
+  if (!nextDraft.data.sellMode) {
+    const sellMode = parseVolumeSellMode(rawMessage);
+    if (!sellMode) {
+      return askForVolumeField(
+        "Reply sell strategy or sell 100 for sell mode.",
+        nextDraft,
+      );
+    }
+    nextDraft.data.sellMode = sellMode;
+
+    if (sellMode === "sell_100") {
+      return prepareVolumePreview(
+        now,
+        requireCompleteVolumeBotDraft(nextDraft),
+        volumeWalletSelection,
+        globalSettings,
+      );
+    }
+
+    return askForVolumeField(
+      "What sell strategy leg should I use? Example: 1 to 33 percent, 10 to 20 seconds.",
+      nextDraft,
+    );
+  }
+
+  if (nextDraft.data.sellMode === "sell_strategy" && !nextDraft.data.sellStrategy) {
+    const strategyLeg = parseSellStrategyLeg(rawMessage);
+    if (!strategyLeg) {
+      return askForVolumeField(
+        "Sell strategy leg must include percent and delay ranges. Example: 1 to 33 percent, 10 to 20 seconds.",
+        nextDraft,
+      );
+    }
+    nextDraft.data.sellStrategy = {
+      legs: [strategyLeg],
+    };
+  }
+
+  return prepareVolumePreview(
+    now,
+    requireCompleteVolumeBotDraft(nextDraft),
+    volumeWalletSelection,
+    globalSettings,
+  );
+}
+
 function prepareVolumePreview(
   now: number,
+  draft: RequiredVolumeBotDraft,
+  volumeWalletSelection: VolumeWalletSelection | null,
   globalSettings: GlobalSettings,
 ): MockChatResult {
-  const bot = prepareVolumeBot({
-    volumeWalletPubkey: "VolumeWallet...5sTq",
-    tokenAddress: "SCATMint111",
-    makers: 100,
-    orderAmount: { minSol: 0.01, maxSol: 0.02 },
-    delaySeconds: { min: 10, max: 20 },
-    onPurchase: "auto_sell",
-    sellTiming: "after_each",
-    sellMode: "sell_strategy",
-    sellStrategy: {
-      legs: [
-        {
-          sellPct: { min: 1, max: 33 },
-          delaySeconds: { min: 10, max: 20 },
-        },
-      ],
-    },
-    globalSettings,
-  });
+  const volumeWalletPubkey =
+    volumeWalletSelection?.volumeWalletPubkey ?? "VolumeWallet...5sTq";
+  const input: VolumeBotInput =
+    draft.data.sellMode === "sell_strategy"
+      ? {
+          volumeWalletPubkey,
+          tokenAddress: draft.data.tokenAddress,
+          makers: draft.data.makers,
+          orderAmount: draft.data.orderAmount,
+          delaySeconds: draft.data.delaySeconds,
+          onPurchase: draft.data.onPurchase,
+          sellTiming: draft.data.sellTiming,
+          sellMode: "sell_strategy",
+          sellStrategy: draft.data.sellStrategy,
+          globalSettings,
+        }
+      : {
+          volumeWalletPubkey,
+          tokenAddress: draft.data.tokenAddress,
+          makers: draft.data.makers,
+          orderAmount: draft.data.orderAmount,
+          delaySeconds: draft.data.delaySeconds,
+          onPurchase: draft.data.onPurchase,
+          sellTiming: draft.data.sellTiming,
+          sellMode: "sell_100",
+          globalSettings,
+        };
+  const bot = prepareVolumeBot(input);
 
   return {
     assistantMessage: {
@@ -978,14 +1207,39 @@ function prepareVolumePreview(
     activePreview: {
       kind: "volume_bot",
       botId: bot.botId,
-      makers: 100,
+      tokenAddress: draft.data.tokenAddress,
+      volumeWalletPubkey,
+      makers: draft.data.makers,
+      orderAmount: draft.data.orderAmount,
+      delaySeconds: draft.data.delaySeconds,
+      onPurchase: draft.data.onPurchase,
+      sellTiming: draft.data.sellTiming,
+      sellMode: draft.data.sellMode,
+      sellStrategy:
+        draft.data.sellMode === "sell_strategy"
+          ? draft.data.sellStrategy
+          : undefined,
       serviceFeeSol: bot.preview.smithiiServiceFeeSol,
       estimatedTotalFeesSol: bot.preview.estimatedTotalFeesSol,
+      expectedDurationText: bot.preview.expectedDurationText,
       globalSettings,
       summary: bot.preview.summaryMd,
     },
     executionStatus: "Waiting for confirm",
     draft: null,
+  };
+}
+
+function askForVolumeField(text: string, draft: VolumeBotDraft): MockChatResult {
+  return {
+    assistantMessage: {
+      role: "assistant",
+      text,
+    },
+    pendingPlan: null,
+    activePreview: null,
+    executionStatus: "Collecting volume fields",
+    draft,
   };
 }
 
@@ -1022,6 +1276,30 @@ type RequiredBundleSwapDraft = {
     txDelayBlocks: number;
     perTxOverrides: BundleSwapPerTxOverrides;
   };
+};
+
+type RequiredVolumeBotDraft = {
+  tool: "volume_bot";
+  data: {
+    tokenAddress: string;
+    makers: number;
+    orderAmount: VolumeBotInput["orderAmount"];
+    delaySeconds: VolumeBotInput["delaySeconds"];
+    onPurchase: VolumeBotInput["onPurchase"];
+    sellTiming: VolumeBotInput["sellTiming"];
+  } & (
+    | {
+        sellMode: "sell_strategy";
+        sellStrategy: Extract<
+          VolumeBotInput,
+          { sellMode: "sell_strategy" }
+        >["sellStrategy"];
+      }
+    | {
+        sellMode: "sell_100";
+        sellStrategy?: never;
+      }
+  );
 };
 
 function buildSwapDraftFromIntent(message: string): BundleSwapDraft {
@@ -1118,6 +1396,66 @@ function requireCompleteBundleSwapDraft(
       txCount: draft.data.txCount,
       txDelayBlocks: draft.data.txDelayBlocks,
       perTxOverrides: draft.data.perTxOverrides ?? {},
+    },
+  };
+}
+
+function requireCompleteVolumeBotDraft(
+  draft: VolumeBotDraft,
+): RequiredVolumeBotDraft {
+  const {
+    tokenAddress,
+    makers,
+    orderAmount,
+    delaySeconds,
+    onPurchase,
+    sellTiming,
+    sellMode,
+    sellStrategy,
+  } = draft.data;
+
+  if (
+    !tokenAddress ||
+    !makers ||
+    !orderAmount ||
+    !delaySeconds ||
+    !onPurchase ||
+    !sellTiming ||
+    !sellMode
+  ) {
+    throw new Error("Volume Bot draft is incomplete.");
+  }
+
+  if (sellMode === "sell_strategy") {
+    if (!sellStrategy?.legs.length) {
+      throw new Error("Volume Bot draft is incomplete.");
+    }
+
+    return {
+      tool: "volume_bot",
+      data: {
+        tokenAddress,
+        makers,
+        orderAmount,
+        delaySeconds,
+        onPurchase,
+        sellTiming,
+        sellMode,
+        sellStrategy,
+      },
+    };
+  }
+
+  return {
+    tool: "volume_bot",
+    data: {
+      tokenAddress,
+      makers,
+      orderAmount,
+      delaySeconds,
+      onPurchase,
+      sellTiming,
+      sellMode,
     },
   };
 }
@@ -1260,6 +1598,81 @@ function parsePerTxOverrides(value: string): BundleSwapPerTxOverrides {
       : normalized.includes("mev on")
         ? { mevShield: true }
         : {}),
+  };
+}
+
+function parseNumberRange(value: string) {
+  const numbers = value
+    .match(/\d+(?:\.\d+)?/g)
+    ?.map((number) => Number.parseFloat(number))
+    .filter((number) => Number.isFinite(number) && number > 0);
+
+  if (!numbers || numbers.length < 2 || numbers[0] > numbers[1]) {
+    return null;
+  }
+
+  return {
+    min: numbers[0],
+    max: numbers[1],
+  };
+}
+
+function parseVolumeOnPurchase(value: string): VolumeBotInput["onPurchase"] | null {
+  const normalized = value.trim().toLowerCase();
+  if (/\bauto\s*sell\b|\bsell\b/.test(normalized)) {
+    return "auto_sell";
+  }
+  if (/\breturn\b|\bwallet\b/.test(normalized)) {
+    return "return_to_wallet";
+  }
+
+  return null;
+}
+
+function parseVolumeSellTiming(value: string): VolumeBotInput["sellTiming"] | null {
+  const normalized = value.trim().toLowerCase();
+  if (/\bafter\s*each\b|\beach\b/.test(normalized)) {
+    return "after_each";
+  }
+  if (/\bafter\s*all\b|\ball\b/.test(normalized)) {
+    return "after_all";
+  }
+
+  return null;
+}
+
+function parseVolumeSellMode(value: string): VolumeBotInput["sellMode"] | null {
+  const normalized = value.trim().toLowerCase();
+  if (/\bsell\s*100\b|\b100%?\b|\ball\b/.test(normalized)) {
+    return "sell_100";
+  }
+  if (/\bstrategy\b/.test(normalized)) {
+    return "sell_strategy";
+  }
+
+  return null;
+}
+
+function parseSellStrategyLeg(
+  value: string,
+): Extract<VolumeBotInput, { sellMode: "sell_strategy" }>["sellStrategy"]["legs"][number] | null {
+  const numbers = value
+    .match(/\d+(?:\.\d+)?/g)
+    ?.map((number) => Number.parseFloat(number))
+    .filter((number) => Number.isFinite(number) && number > 0);
+
+  if (!numbers || numbers.length < 4) {
+    return null;
+  }
+
+  const [sellMin, sellMax, delayMin, delayMax] = numbers;
+  if (sellMin > sellMax || sellMax > 100 || delayMin > delayMax) {
+    return null;
+  }
+
+  return {
+    sellPct: { min: sellMin, max: sellMax },
+    delaySeconds: { min: delayMin, max: delayMax },
   };
 }
 

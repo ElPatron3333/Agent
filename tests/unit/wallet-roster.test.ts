@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildLaunchWalletSelection,
   buildSwapWalletSelection,
+  buildVolumeWalletSelection,
   createDemoWalletRoster,
   exportPrivateKeyCsv,
   parsePrivateKeyCsv,
@@ -227,5 +228,16 @@ describe("wallet roster boundary", () => {
         solPerWallet: 0.25,
       }).bundleWallets,
     ).toEqual([{ pubkey: "Imported wallet 1", buyAmountSol: 0.25 }]);
+  });
+
+  it("builds a volume bot wallet selection without private keys", () => {
+    const selection = buildVolumeWalletSelection({
+      roster: createDemoWalletRoster(),
+    });
+
+    expect(selection).toEqual({
+      volumeWalletPubkey: "BndlWallet...4kd9",
+    });
+    expect(JSON.stringify(selection)).not.toContain("privateKey");
   });
 });

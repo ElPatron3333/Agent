@@ -22,6 +22,7 @@ import {
   handleMockChat,
   type BundleLaunchDraft,
   type BundleSwapDraft,
+  type VolumeBotDraft,
   type MockChatResult,
   type Draft,
   type PendingPlan,
@@ -36,6 +37,7 @@ import { resolvePlanSigningSecret } from "@/lib/plan-signing-secret";
 import type {
   LaunchWalletSelection,
   SwapWalletSelection,
+  VolumeWalletSelection,
 } from "@/lib/wallet-roster";
 
 type ChatRequest = {
@@ -44,6 +46,7 @@ type ChatRequest = {
   draft?: unknown;
   launchWalletSelection?: unknown;
   swapWalletSelection?: unknown;
+  volumeWalletSelection?: unknown;
   globalSettings?: unknown;
 };
 
@@ -145,6 +148,16 @@ export async function POST(request: Request) {
     );
   }
 
+  const volumeWalletSelection = parseVolumeWalletSelection(
+    body.volumeWalletSelection,
+  );
+  if (volumeWalletSelection === "invalid") {
+    return NextResponse.json(
+      { error: "Invalid volume wallet selection." },
+      { status: 400 },
+    );
+  }
+
   if (pendingPlan && isConfirmMessage(body.message) && !claimPlanRecord(sessionId, pendingPlan)) {
     appendAuditRecord(
       auditRecordForRejectedPendingPlan({
@@ -165,6 +178,7 @@ export async function POST(request: Request) {
     draft,
     launchWalletSelection,
     swapWalletSelection,
+    volumeWalletSelection,
     globalSettings: normalizeGlobalSettings(body.globalSettings),
   });
   appendAuditRecord(
@@ -319,6 +333,26 @@ function parseSwapWalletSelection(
   };
 }
 
+function parseVolumeWalletSelection(
+  value: unknown,
+): VolumeWalletSelection | null | "invalid" {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (!isRecord(value) || typeof value.volumeWalletPubkey !== "string") {
+    return "invalid";
+  }
+
+  if (value.volumeWalletPubkey.trim().length === 0) {
+    return "invalid";
+  }
+
+  return {
+    volumeWalletPubkey: value.volumeWalletPubkey,
+  };
+}
+
 function parseDraft(value: unknown): Draft | null | "invalid" {
   if (value === undefined || value === null) {
     return null;
@@ -336,6 +370,18 @@ function parseDraft(value: unknown): Draft | null | "invalid" {
 
     return {
       tool: "bundle_swap",
+      data,
+    };
+  }
+
+  if (value.tool === "volume_bot") {
+    const data = parseVolumeBotDraftData(value.data);
+    if (data === "invalid") {
+      return "invalid";
+    }
+
+    return {
+      tool: "volume_bot",
       data,
     };
   }
@@ -535,6 +581,110 @@ function parseBundleSwapDraftData(
   return data;
 }
 
+function parseVolumeBotDraftData(
+  value: Record<string, unknown>,
+): VolumeBotDraft["data"] | "invalid" {
+  const data: VolumeBotDraft["data"] = {};
+
+  if (value.tokenAddress !== undefined) {
+    if (typeof value.tokenAddress !== "string" || value.tokenAddress.trim().length === 0) {
+      return "invalid";
+    }
+    data.tokenAddress = value.tokenAddress;
+  }
+
+  if (value.makers !== undefined) {
+    if (
+      typeof value.makers !== "number" ||
+      !Number.isInteger(value.makers) ||
+      value.makers < 1 ||
+      value.makers > 10000
+    ) {
+      return "invalid";
+    }
+    data.makers = value.makers;
+  }
+
+  if (value.orderAmount !== undefined) {
+    if (!isRecord(value.orderAmount)) {
+      return "invalid";
+    }
+    const orderAmount = parseSolRange(value.orderAmount);
+    if (orderAmount === "invalid") {
+      return "invalid";
+    }
+    data.orderAmount = orderAmount;
+  }
+
+  if (value.delaySeconds !== undefined) {
+    if (!isRecord(value.delaySeconds)) {
+      return "invalid";
+    }
+    const delaySeconds = parseSecondRange(value.delaySeconds);
+    if (delaySeconds === "invalid") {
+      return "invalid";
+    }
+    data.delaySeconds = delaySeconds;
+  }
+
+  if (value.onPurchase !== undefined) {
+    if (
+      value.onPurchase !== "auto_sell" &&
+      value.onPurchase !== "return_to_wallet"
+    ) {
+      return "invalid";
+    }
+    data.onPurchase = value.onPurchase;
+  }
+
+  if (value.sellTiming !== undefined) {
+    if (value.sellTiming !== "after_each" && value.sellTiming !== "after_all") {
+      return "invalid";
+    }
+    data.sellTiming = value.sellTiming;
+  }
+
+  if (value.sellMode !== undefined) {
+    if (value.sellMode !== "sell_strategy" && value.sellMode !== "sell_100") {
+      return "invalid";
+    }
+    data.sellMode = value.sellMode;
+  }
+
+  if (value.sellStrategy !== undefined) {
+    if (!isRecord(value.sellStrategy) || !Array.isArray(value.sellStrategy.legs)) {
+      return "invalid";
+    }
+    const legs = value.sellStrategy.legs.map((leg) => {
+      if (
+        !isRecord(leg) ||
+        !isRecord(leg.sellPct) ||
+        !isRecord(leg.delaySeconds)
+      ) {
+        return null;
+      }
+      const sellPct = parsePctRange(leg.sellPct);
+      const delaySeconds = parseSecondRange(leg.delaySeconds);
+      if (sellPct === "invalid" || delaySeconds === "invalid") {
+        return null;
+      }
+      return { sellPct, delaySeconds };
+    });
+    if (legs.some((leg) => leg === null)) {
+      return "invalid";
+    }
+    data.sellStrategy = {
+      legs: legs as NonNullable<VolumeBotDraft["data"]["sellStrategy"]>["legs"],
+    };
+  }
+
+  if (data.sellMode === "sell_100" && data.sellStrategy) {
+    return "invalid";
+  }
+
+  return data;
+}
+
 function parseBundleSwapQuantityMode(
   value: Record<string, unknown>,
 ): BundleSwapDraft["data"]["quantityMode"] | "invalid" {
@@ -561,6 +711,31 @@ function parseBundleSwapQuantityMode(
   }
 
   return "invalid";
+}
+
+function parseSolRange(value: Record<string, unknown>) {
+  return numberField(value.minSol) &&
+    numberField(value.maxSol) &&
+    value.minSol <= value.maxSol
+    ? { minSol: value.minSol, maxSol: value.maxSol }
+    : "invalid";
+}
+
+function parseSecondRange(value: Record<string, unknown>) {
+  return numberField(value.min) &&
+    numberField(value.max) &&
+    value.min <= value.max
+    ? { min: value.min, max: value.max }
+    : "invalid";
+}
+
+function parsePctRange(value: Record<string, unknown>) {
+  return numberField(value.min) &&
+    numberField(value.max) &&
+    value.min <= value.max &&
+    value.max <= 100
+    ? { min: value.min, max: value.max }
+    : "invalid";
 }
 
 function parsePerTxOverrides(

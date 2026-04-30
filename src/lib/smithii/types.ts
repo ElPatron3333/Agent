@@ -89,3 +89,10 @@ type VolumeBotSellAll = {
 
 export type VolumeBotInput = VolumeBotBaseInput &
   (VolumeBotSellStrategy | VolumeBotSellAll);
+
+export type VolumeBotStatus = {
+  state: "running" | "paused" | "completed" | "failed";
+  makersDone: number;
+  volumeDoneSol: number;
+  solConsumed: number;
+};

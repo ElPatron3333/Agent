@@ -9,6 +9,7 @@ import type {
   Draft,
   MockChatResult,
   PendingPlan,
+  VolumeBotRun,
 } from "@/lib/agent/mock-chat";
 import {
   chatErrorStateForResponse,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/agent/client-chat-state";
 import type { AuditLogRecord } from "@/lib/audit-log-types";
 import type { GlobalSettings } from "@/lib/smithii/types";
+import { pauseVolumeBot } from "@/lib/smithii/mock";
 import { BundleLaunchPreview } from "@/components/previews/bundle-launch-preview";
 import {
   DEFAULT_GLOBAL_SETTINGS,
@@ -26,6 +28,7 @@ import {
 import {
   buildLaunchWalletSelection,
   buildSwapWalletSelection,
+  buildVolumeWalletSelection,
   createDemoWalletRoster,
   exportPrivateKeyCsv,
   parsePrivateKeyCsv,
@@ -83,6 +86,7 @@ export function SmithiiAgentApp() {
   const [activePreview, setActivePreview] =
     useState<ActivePreview | null>(defaultPreview);
   const [executionStatus, setExecutionStatus] = useState("Waiting for preview");
+  const [volumeBotRun, setVolumeBotRun] = useState<VolumeBotRun | null>(null);
   const [auditLog, setAuditLog] = useState<AuditLogRecord[]>([]);
   const [walletImportStatus, setWalletImportStatus] =
     useState("Private keys stay in browser state.");
@@ -145,6 +149,7 @@ export function SmithiiAgentApp() {
             walletRoster,
             trimmed,
           ),
+          volumeWalletSelection: volumeSelectionForDraft(draft, walletRoster),
           globalSettings,
         }),
       });
@@ -171,6 +176,7 @@ export function SmithiiAgentApp() {
       setDraft(result.draft);
       setActivePreview((current) => nextActivePreview(result, current));
       setExecutionStatus(result.executionStatus);
+      setVolumeBotRun(result.volumeBotRun ?? null);
       void refreshAuditLog();
     } catch (error) {
       const message =
@@ -178,6 +184,7 @@ export function SmithiiAgentApp() {
         (error.message === "Not enough bundle wallets are available." ||
           error.message === "Bundle Swap wallet count must be a whole number from 1 to 20." ||
           error.message === "A dev wallet is required for Bundle Launch." ||
+          error.message === "A bundle wallet is required for Volume Bot." ||
           error.message === "Invalid pending plan.")
           ? error.message
           : "The mock chat route failed. Check the dev logs and try again.";
@@ -438,6 +445,38 @@ export function SmithiiAgentApp() {
                   value={activePreview?.kind ?? "No preview"}
                 />
                 <PreviewRow label="Draft" value={draftSummary(draft)} />
+                {volumeBotRun ? (
+                  <div className="mt-4 rounded-md border border-cyan-950/70 p-3">
+                    <PreviewRow label="Run ID" value={volumeBotRun.runId} />
+                    <PreviewRow label="Run state" value={volumeBotRun.state} />
+                    <PreviewRow
+                      label="Makers done"
+                      value={String(volumeBotRun.makersDone)}
+                    />
+                    <PreviewRow
+                      label="Volume done"
+                      value={`${volumeBotRun.volumeDoneSol.toFixed(3)} SOL`}
+                    />
+                    <button
+                      className="mt-3 h-9 rounded-md border border-amber-500 px-3 text-sm font-semibold text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+                      type="button"
+                      disabled={volumeBotRun.state === "paused"}
+                      onClick={() =>
+                        setVolumeBotRun((current) =>
+                          current
+                            ? {
+                                ...current,
+                                state: pauseVolumeBot({ runId: current.runId })
+                                  .status,
+                              }
+                            : current,
+                        )
+                      }
+                    >
+                      Pause
+                    </button>
+                  </div>
+                ) : null}
               </Panel>
 
               <Panel className="mt-4" title="Audit Log">
@@ -739,7 +778,21 @@ function PreviewPanel({ preview }: { preview: ActivePreview | null }) {
 
   return (
     <Panel title="Volume Bot Preview">
+      <PreviewRow label="Token" value={preview.tokenAddress} />
+      <PreviewRow label="Volume wallet" value={preview.volumeWalletPubkey} />
       <PreviewRow label="Makers" value={String(preview.makers)} />
+      <PreviewRow
+        label="Order range"
+        value={`${preview.orderAmount.minSol}-${preview.orderAmount.maxSol} SOL`}
+      />
+      <PreviewRow
+        label="Delay"
+        value={`${preview.delaySeconds.min}-${preview.delaySeconds.max}s`}
+      />
+      <PreviewRow label="On purchase" value={onPurchaseLabel(preview.onPurchase)} />
+      <PreviewRow label="Sell timing" value={sellTimingLabel(preview.sellTiming)} />
+      <PreviewRow label="Sell mode" value={sellModeLabel(preview.sellMode)} />
+      <PreviewRow label="Duration" value={preview.expectedDurationText} />
       <PreviewRow
         label="Service fee"
         value={`${preview.serviceFeeSol.toFixed(3)} SOL`}
@@ -764,7 +817,30 @@ function PreviewPanel({ preview }: { preview: ActivePreview | null }) {
         label="Slippage"
         value={`${preview.globalSettings.slippagePct}%`}
       />
-      <PreviewRow label="Sell mode" value="Strategy" />
+      {preview.sellStrategy ? (
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[320px] text-left text-xs">
+            <thead className="uppercase text-slate-500">
+              <tr>
+                <th className="py-2">Sell pct</th>
+                <th className="py-2">Delay</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-cyan-950/70">
+              {preview.sellStrategy.legs.map((leg, index) => (
+                <tr key={`${leg.sellPct.min}-${leg.sellPct.max}-${index}`}>
+                  <td className="py-2 text-slate-200">
+                    {leg.sellPct.min}-{leg.sellPct.max}%
+                  </td>
+                  <td className="py-2">
+                    {leg.delaySeconds.min}-{leg.delaySeconds.max}s
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
       <p className="mt-4 rounded-md border border-cyan-950/80 p-3 text-sm text-slate-300">
         {preview.summary}
       </p>
@@ -862,6 +938,36 @@ function draftSummary(draft: Draft | null) {
     return "Ready for swap preview";
   }
 
+  if (draft.tool === "volume_bot") {
+    const data = draft.data;
+    if (!data.tokenAddress) {
+      return "Waiting for token";
+    }
+    if (!data.makers) {
+      return "Waiting for makers";
+    }
+    if (!data.orderAmount) {
+      return "Waiting for order range";
+    }
+    if (!data.delaySeconds) {
+      return "Waiting for delay range";
+    }
+    if (!data.onPurchase) {
+      return "Waiting for purchase handling";
+    }
+    if (!data.sellTiming) {
+      return "Waiting for sell timing";
+    }
+    if (!data.sellMode) {
+      return "Waiting for sell mode";
+    }
+    if (data.sellMode === "sell_strategy" && !data.sellStrategy) {
+      return "Waiting for sell strategy";
+    }
+
+    return "Ready for volume preview";
+  }
+
   const data = draft.data;
   if (!data.tokenName) {
     return "Waiting for name";
@@ -920,6 +1026,19 @@ function swapSelectionForDraftOrIntent(
   return buildSwapWalletSelection({
     roster: walletRoster,
     walletCount,
+  });
+}
+
+function volumeSelectionForDraft(
+  draft: Draft | null,
+  walletRoster: BrowserWalletEntry[],
+) {
+  if (draft?.tool !== "volume_bot") {
+    return null;
+  }
+
+  return buildVolumeWalletSelection({
+    roster: walletRoster,
   });
 }
 
@@ -989,6 +1108,18 @@ function settingSpeedLabel(speed: GlobalSettings["speed"]) {
 
 function settingJitoLabel(jitoTip: GlobalSettings["jitoTip"]) {
   return jitoTip === "default" ? "Default" : `${jitoTip} SOL`;
+}
+
+function onPurchaseLabel(value: Extract<ActivePreview, { kind: "volume_bot" }>["onPurchase"]) {
+  return value === "auto_sell" ? "Auto sell" : "Return to wallet";
+}
+
+function sellTimingLabel(value: Extract<ActivePreview, { kind: "volume_bot" }>["sellTiming"]) {
+  return value === "after_each" ? "After each" : "After all";
+}
+
+function sellModeLabel(value: Extract<ActivePreview, { kind: "volume_bot" }>["sellMode"]) {
+  return value === "sell_strategy" ? "Sell strategy" : "Sell 100";
 }
 
 function directionLabel(direction: BundleSwapPreviewState["direction"]) {

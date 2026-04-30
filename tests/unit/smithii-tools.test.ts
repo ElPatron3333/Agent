@@ -7,6 +7,8 @@ import {
   executeBundleLaunch,
   executeBundleSwap,
   executeVolumeBot,
+  getVolumeBotStatus,
+  pauseVolumeBot,
 } from "../../src/lib/smithii/mock";
 import type { VolumeBotInput } from "../../src/lib/smithii/types";
 
@@ -289,6 +291,90 @@ describe("mock Smithii tools", () => {
     expect(() => prepareVolumeBot(input)).toThrow(
       "Sell strategy is required when sell mode is sell_strategy.",
     );
+  });
+
+  it("prepares sell-100 volume bots without strategy legs", () => {
+    const preview = prepareVolumeBot({
+      volumeWalletPubkey: "wallet111",
+      tokenAddress: "Mint111",
+      makers: 100,
+      orderAmount: { minSol: 0.02, maxSol: 0.04 },
+      delaySeconds: { min: 15, max: 30 },
+      onPurchase: "return_to_wallet",
+      sellTiming: "after_all",
+      sellMode: "sell_100",
+      globalSettings,
+    });
+
+    expect(preview.botId).toBe("bot_volume_100_Mint111");
+    expect(preview.preview.smithiiServiceFeeSol).toBe(0.025);
+    expect(preview.preview.estimatedTotalFeesSol).toBe(3.025);
+    expect(preview.preview.expectedDurationText).toBe(
+      "100 makers, 15-30s delay",
+    );
+  });
+
+  it("rejects invalid volume bot ranges before preparing a preview", () => {
+    const validInput: VolumeBotInput = {
+      volumeWalletPubkey: "wallet111",
+      tokenAddress: "Mint111",
+      makers: 100,
+      orderAmount: { minSol: 0.01, maxSol: 0.02 },
+      delaySeconds: { min: 10, max: 20 },
+      onPurchase: "auto_sell",
+      sellTiming: "after_each",
+      sellMode: "sell_strategy",
+      sellStrategy: {
+        legs: [
+          {
+            sellPct: { min: 1, max: 33 },
+            delaySeconds: { min: 10, max: 20 },
+          },
+        ],
+      },
+      globalSettings,
+    };
+
+    expect(() =>
+      prepareVolumeBot({ ...validInput, makers: 0 }),
+    ).toThrow("Volume Bot makers must be a whole number from 1 to 10000.");
+    expect(() =>
+      prepareVolumeBot({
+        ...validInput,
+        orderAmount: { minSol: 0.03, maxSol: 0.02 },
+      }),
+    ).toThrow("Volume Bot order amount must be a positive min/max SOL range.");
+    expect(() =>
+      prepareVolumeBot({
+        ...validInput,
+        delaySeconds: { min: 30, max: 10 },
+      }),
+    ).toThrow("Volume Bot delay must be a positive min/max second range.");
+    expect(() =>
+      prepareVolumeBot({
+        ...validInput,
+        sellStrategy: {
+          legs: [
+            {
+              sellPct: { min: 50, max: 101 },
+              delaySeconds: { min: 10, max: 20 },
+            },
+          ],
+        },
+      }),
+    ).toThrow("Volume Bot sell strategy percentages must be 1-100 min/max ranges.");
+  });
+
+  it("returns deterministic mock volume bot status and pause results", () => {
+    expect(getVolumeBotStatus({ runId: "run_bot_volume_200_Mint111" })).toEqual({
+      state: "running",
+      makersDone: 40,
+      volumeDoneSol: 0.6,
+      solConsumed: 0.6,
+    });
+    expect(pauseVolumeBot({ runId: "run_bot_volume_200_Mint111" })).toEqual({
+      status: "paused",
+    });
   });
 
   it("returns deterministic fake execution results without private keys", () => {
