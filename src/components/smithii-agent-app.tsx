@@ -12,7 +12,7 @@ import type {
   VolumeBotRun,
 } from "@/lib/agent/mock-chat";
 import {
-  readStoredLastConfig,
+  readStoredLastSequenceConfig,
   writeStoredLastConfig,
   type LastConfigSnapshot,
 } from "@/lib/agent/last-config-memory";
@@ -95,8 +95,8 @@ export function SmithiiAgentApp() {
     useState<ActivePreview | null>(defaultPreview);
   const [executionStatus, setExecutionStatus] = useState("Waiting for preview");
   const [volumeBotRun, setVolumeBotRun] = useState<VolumeBotRun | null>(null);
-  const [lastConfig, setLastConfig] = useState<LastConfigSnapshot | null>(
-    getInitialLastConfig,
+  const [lastSequenceConfig, setLastSequenceConfig] = useState<LastConfigSnapshot | null>(
+    getInitialLastSequenceConfig,
   );
   const [auditLog, setAuditLog] = useState<AuditLogRecord[]>([]);
   const [walletImportStatus, setWalletImportStatus] =
@@ -258,13 +258,17 @@ export function SmithiiAgentApp() {
   }
 
   function rememberLastConfig(preview: ActivePreview | null) {
-    if (!preview || typeof window === "undefined") {
+    if (
+      !preview ||
+      preview.kind !== "launch_volume_sequence" ||
+      typeof window === "undefined"
+    ) {
       return;
     }
 
     const snapshot = lastConfigSnapshotForPreview(preview);
     writeStoredLastConfig(window.localStorage, snapshot);
-    setLastConfig(snapshot);
+    setLastSequenceConfig(snapshot);
   }
 
   return (
@@ -311,22 +315,22 @@ export function SmithiiAgentApp() {
           </section>
 
           <section className="mt-8">
-            <h2 className="text-sm font-semibold text-slate-200">Last config</h2>
+            <h2 className="text-sm font-semibold text-slate-200">Last sequence</h2>
             <div className="mt-3 space-y-2 text-sm text-slate-300">
-              <PreviewRow label="Flow" value={lastConfig?.kind ?? "None"} />
-              <PreviewRow label="Saved" value={lastConfig?.label ?? "No saved config"} />
+              <PreviewRow label="Flow" value={lastSequenceConfig?.kind ?? "None"} />
+              <PreviewRow label="Saved" value={lastSequenceConfig?.label ?? "No saved sequence"} />
             </div>
             <button
               className="mt-3 h-9 w-full rounded-md border border-cyan-700 px-3 text-sm font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
               type="button"
-              disabled={!lastConfig}
+              disabled={!lastSequenceConfig}
               onClick={() => {
-                if (lastConfig) {
-                  setInput(inputForLastConfig(lastConfig));
+                if (lastSequenceConfig) {
+                  setInput(inputForLastConfig(lastSequenceConfig));
                 }
               }}
             >
-              Reuse
+              Reuse sequence
             </button>
           </section>
         </aside>
@@ -720,12 +724,12 @@ function getInitialGlobalSettings() {
   return readStoredGlobalSettings(window.sessionStorage);
 }
 
-function getInitialLastConfig() {
+function getInitialLastSequenceConfig() {
   if (typeof window === "undefined") {
     return null;
   }
 
-  return readStoredLastConfig(window.localStorage);
+  return readStoredLastSequenceConfig(window.localStorage);
 }
 
 function lastConfigSnapshotForPreview(

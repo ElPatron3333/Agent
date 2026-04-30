@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   readStoredLastConfig,
+  readStoredLastSequenceConfig,
   writeStoredLastConfig,
 } from "../../src/lib/agent/last-config-memory";
 
@@ -30,6 +31,32 @@ describe("last config memory", () => {
       templateId: "momentum_v1",
       updatedAt: "2026-04-30T20:00:00.000Z",
     });
+  });
+
+  it("returns only saved launch to volume sequence configs for sequence reuse", () => {
+    const sequenceStorage = createStorage(
+      JSON.stringify({
+        kind: "launch_volume_sequence",
+        label: "Launch + Volume: Blue Frog / BFROG",
+        templateId: "momentum_v1",
+        updatedAt: "2026-04-30T20:00:00.000Z",
+      }),
+    );
+    const launchStorage = createStorage(
+      JSON.stringify({
+        kind: "bundle_launch",
+        label: "Bundle Launch: Blue Frog / BFROG",
+        updatedAt: "2026-04-30T20:00:00.000Z",
+      }),
+    );
+
+    expect(readStoredLastSequenceConfig(sequenceStorage)).toEqual({
+      kind: "launch_volume_sequence",
+      label: "Launch + Volume: Blue Frog / BFROG",
+      templateId: "momentum_v1",
+      updatedAt: "2026-04-30T20:00:00.000Z",
+    });
+    expect(readStoredLastSequenceConfig(launchStorage)).toBeNull();
   });
 });
 

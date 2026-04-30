@@ -23,6 +23,11 @@ export function readStoredLastConfig(storage: LastConfigStorage) {
   }
 }
 
+export function readStoredLastSequenceConfig(storage: LastConfigStorage) {
+  const config = readStoredLastConfig(storage);
+  return config?.kind === "launch_volume_sequence" ? config : null;
+}
+
 export function writeStoredLastConfig(
   storage: LastConfigStorage,
   snapshot: LastConfigSnapshot,
