@@ -82,7 +82,7 @@ type VolumeBotBaseInput = {
 type VolumeBotSellStrategy = {
   sellMode: "sell_strategy";
   sellStrategy: {
-    legs: [VolumeBotSellStrategyLeg, ...VolumeBotSellStrategyLeg[]];
+    legs: [VolumeBotSellStrategyLeg];
   };
 };
 

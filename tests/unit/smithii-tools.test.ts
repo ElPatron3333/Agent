@@ -410,18 +410,40 @@ describe("mock Smithii tools", () => {
             },
           ],
         },
-      } as VolumeBotInput),
+      } as unknown as VolumeBotInput),
     ).toThrow("Volume Bot Sell Strategy supports one leg in the MVP.");
   });
 
   it("returns deterministic mock volume bot status and pause results", () => {
-    expect(getVolumeBotStatus({ runId: "run_bot_volume_200_Mint111" })).toEqual({
+    const preview = prepareVolumeBot({
+      volumeWalletPubkey: "wallet111",
+      tokenAddress: "Mint111",
+      makers: 200,
+      orderAmount: { minSol: 0.01, maxSol: 0.02 },
+      delaySeconds: { min: 10, max: 20 },
+      onPurchase: "auto_sell",
+      sellTiming: "after_each",
+      sellMode: "sell_strategy",
+      sellStrategy: {
+        legs: [
+          {
+            sellPct: { min: 1, max: 33 },
+            delaySeconds: { min: 10, max: 20 },
+          },
+        ],
+      },
+      globalSettings,
+    });
+    const execution = executeVolumeBot({ botId: preview.botId });
+
+    expect(execution.runId).toMatch(/^run_bot_volume_200_Mint111_/);
+    expect(getVolumeBotStatus({ runId: execution.runId })).toEqual({
       state: "running",
       makersDone: 40,
       volumeDoneSol: 0.6,
       solConsumed: 0.6,
     });
-    expect(pauseVolumeBot({ runId: "run_bot_volume_200_Mint111" })).toEqual({
+    expect(pauseVolumeBot({ runId: execution.runId })).toEqual({
       status: "paused",
     });
   });
@@ -435,8 +457,8 @@ describe("mock Smithii tools", () => {
       txSignature: "MockBundleSwapSignature_plan_bundle_swap_token_to_sol_2_abc",
       perWalletResults: [],
     });
-    expect(executeVolumeBot({ botId: "bot_volume_200_Mint111" })).toEqual({
-      runId: "run_bot_volume_200_Mint111",
+    expect(executeVolumeBot({ botId: "bot_volume_200_Mint111_hash123" })).toEqual({
+      runId: "run_bot_volume_200_Mint111_hash123",
       status: "started",
     });
   });

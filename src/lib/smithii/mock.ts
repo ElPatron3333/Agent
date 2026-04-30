@@ -239,19 +239,19 @@ function validateVolumeBotInput(input: VolumeBotInput) {
     throw new Error("Volume Bot delay must be a positive min/max second range.");
   }
 
-  if (
-    input.sellMode === "sell_strategy" &&
-    (!input.sellStrategy || input.sellStrategy.legs.length === 0)
-  ) {
-    throw new Error("Sell strategy is required when sell mode is sell_strategy.");
-  }
-
   if (input.sellMode === "sell_strategy") {
-    if (input.sellStrategy.legs.length > VOLUME_BOT_SELL_STRATEGY_LEG_LIMIT) {
+    const legs = (input as { sellStrategy?: { legs?: typeof input.sellStrategy.legs } })
+      .sellStrategy?.legs;
+
+    if (!legs?.length) {
+      throw new Error("Sell strategy is required when sell mode is sell_strategy.");
+    }
+
+    if (legs.length > VOLUME_BOT_SELL_STRATEGY_LEG_LIMIT) {
       throw new Error("Volume Bot Sell Strategy supports one leg in the MVP.");
     }
 
-    for (const leg of input.sellStrategy.legs) {
+    for (const leg of legs) {
       if (
         !isPositiveRange(leg.sellPct.min, leg.sellPct.max) ||
         leg.sellPct.max > 100
