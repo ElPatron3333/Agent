@@ -484,9 +484,11 @@ describe("/api/chat route", () => {
     expect(previewResponse.status).toBe(200);
     expect(JSON.stringify(preview)).not.toContain("privateKey");
     expect(preview.pendingPlan).toMatchObject({
-      id: "bot_volume_200_Mint111",
       tool: "volume_bot",
     });
+    expect(String((preview.pendingPlan as { id: string }).id)).toMatch(
+      /^bot_volume_200_Mint111_/,
+    );
     expect(preview.pendingPlan).toHaveProperty("signature");
     expect(preview.activePreview).toMatchObject({
       kind: "volume_bot",
@@ -510,7 +512,7 @@ describe("/api/chat route", () => {
     expect(await responseJson(confirmResponse)).toMatchObject({
       executionStatus: "Volume bot started",
       volumeBotRun: {
-        runId: "run_bot_volume_200_Mint111",
+        runId: `run_${(preview.pendingPlan as { id: string }).id}`,
         state: "running",
       },
     });
@@ -537,10 +539,31 @@ describe("/api/chat route", () => {
       {
         ...completeVolumeDraftData(),
         sellStrategy: {
+          legs: [],
+        },
+      },
+      {
+        ...completeVolumeDraftData(),
+        sellStrategy: {
           legs: [
             {
               sellPct: { min: 0, max: 33 },
               delaySeconds: { min: 10, max: 20 },
+            },
+          ],
+        },
+      },
+      {
+        ...completeVolumeDraftData(),
+        sellStrategy: {
+          legs: [
+            {
+              sellPct: { min: 1, max: 33 },
+              delaySeconds: { min: 10, max: 20 },
+            },
+            {
+              sellPct: { min: 34, max: 66 },
+              delaySeconds: { min: 21, max: 30 },
             },
           ],
         },
@@ -564,6 +587,124 @@ describe("/api/chat route", () => {
         error: "Invalid draft.",
       });
     }
+  });
+
+  it("rejects complete volume bot drafts without a public volume wallet selection", async () => {
+    const response = await POST(
+      jsonRequest({
+        message: "skip",
+        draft: {
+          tool: "volume_bot",
+          data: completeVolumeDraftData(),
+        },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await responseJson(response)).toEqual({
+      error: "Invalid volume wallet selection.",
+    });
+  });
+
+  it("rejects confirm requests that also include draft data without consuming the plan", async () => {
+    const previewResponse = await POST(
+      jsonRequest({
+        message: "no",
+        draft: {
+          tool: "bundle_launch",
+          data: completeLaunchDraftData(),
+        },
+        launchWalletSelection: {
+          devWalletPubkey: "DevWallet...91nP",
+          bundleWallets: [{ pubkey: "BndlWallet...4kd9", buyAmountSol: 0.1 }],
+        },
+      }),
+    );
+    const preview = await responseJson(previewResponse);
+    const cookie = cookieHeaderFrom(previewResponse);
+
+    const rejectedResponse = await POST(
+      jsonRequest(
+        {
+          message: "confirm",
+          pendingPlan: preview.pendingPlan,
+          draft: {
+            tool: "bundle_launch",
+            data: {
+              tokenName: "Other Token",
+            },
+          },
+        },
+        cookie,
+      ),
+    );
+
+    expect(rejectedResponse.status).toBe(400);
+    expect(await responseJson(rejectedResponse)).toEqual({
+      error: "Confirm requests cannot include a draft.",
+    });
+
+    const confirmResponse = await POST(
+      jsonRequest(
+        {
+          message: "confirm",
+          pendingPlan: preview.pendingPlan,
+        },
+        cookie,
+      ),
+    );
+
+    expect(confirmResponse.status).toBe(200);
+    expect(JSON.stringify(await responseJson(confirmResponse))).toContain(
+      "Mock Bundle Launch executed",
+    );
+  });
+
+  it("executes a volume bot with start and rejects replay", async () => {
+    const previewResponse = await POST(
+      jsonRequest({
+        message: "1 to 33 percent, 10 to 20 seconds",
+        draft: {
+          tool: "volume_bot",
+          data: completeVolumeDraftData(),
+        },
+        volumeWalletSelection: {
+          volumeWalletPubkey: "VolumeWallet...5sTq",
+        },
+      }),
+    );
+    const preview = await responseJson(previewResponse);
+    const cookie = cookieHeaderFrom(previewResponse);
+
+    const startResponse = await POST(
+      jsonRequest(
+        {
+          message: "start",
+          pendingPlan: preview.pendingPlan,
+        },
+        cookie,
+      ),
+    );
+
+    expect(startResponse.status).toBe(200);
+    expect(await responseJson(startResponse)).toMatchObject({
+      executionStatus: "Volume bot started",
+    });
+
+    const replayResponse = await POST(
+      jsonRequest(
+        {
+          message: "start",
+          pendingPlan: preview.pendingPlan,
+        },
+        cookie,
+      ),
+    );
+
+    expect(replayResponse.status).toBe(400);
+    expect(await responseJson(replayResponse)).toEqual({
+      error: "Invalid pending plan.",
+    });
   });
 
   it("does not consume a pending plan on non-confirm draft requests", async () => {

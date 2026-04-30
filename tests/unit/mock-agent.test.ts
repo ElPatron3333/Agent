@@ -695,14 +695,14 @@ describe("mock chat agent", () => {
     });
 
     expect(preview.assistantMessage.text).toContain("Volume Bot preview");
-    expect(preview.pendingPlan).toEqual({
-      id: "bot_volume_200_Mint111",
+    expect(preview.pendingPlan).toMatchObject({
       tool: "volume_bot",
       createdAt: now,
     });
+    expect(preview.pendingPlan?.id).toMatch(/^bot_volume_200_Mint111_/);
     expect(preview.activePreview).toMatchObject({
       kind: "volume_bot",
-      botId: "bot_volume_200_Mint111",
+      botId: preview.pendingPlan?.id,
       tokenAddress: "Mint111",
       volumeWalletPubkey: "VolumeWallet...5sTq",
       makers: 200,
@@ -760,6 +760,83 @@ describe("mock chat agent", () => {
       sellMode: "sell_100",
       sellStrategy: undefined,
     });
+  });
+
+  it("asks for a volume wallet before preparing a volume bot preview", () => {
+    const result = handleMockChat({
+      message: "sell 100",
+      now,
+      draft: {
+        tool: "volume_bot",
+        data: {
+          tokenAddress: "Mint111",
+          makers: 100,
+          orderAmount: { minSol: 0.02, maxSol: 0.04 },
+          delaySeconds: { min: 15, max: 30 },
+          onPurchase: "return_to_wallet",
+          sellTiming: "after_all",
+        },
+      },
+    });
+
+    expect(result.assistantMessage.text).toBe(
+      "Select a Volume Bot wallet before previewing.",
+    );
+    expect(result.pendingPlan).toBeNull();
+    expect(result.draft?.tool).toBe("volume_bot");
+  });
+
+  it("reprompts for ambiguous volume bot option replies", () => {
+    const purchase = handleMockChat({
+      message: "do not sell, return to wallet",
+      now,
+      draft: {
+        tool: "volume_bot",
+        data: {
+          tokenAddress: "Mint111",
+          makers: 100,
+          orderAmount: { minSol: 0.02, maxSol: 0.04 },
+          delaySeconds: { min: 15, max: 30 },
+        },
+      },
+    });
+
+    expect(purchase.assistantMessage.text).toBe(
+      "Reply auto sell or return to wallet for purchase handling.",
+    );
+    expect(
+      purchase.draft?.tool === "volume_bot"
+        ? purchase.draft.data.onPurchase
+        : null,
+    ).toBeUndefined();
+
+    const sellMode = handleMockChat({
+      message: "sell strategy, not sell 100",
+      now,
+      draft: {
+        tool: "volume_bot",
+        data: {
+          tokenAddress: "Mint111",
+          makers: 100,
+          orderAmount: { minSol: 0.02, maxSol: 0.04 },
+          delaySeconds: { min: 15, max: 30 },
+          onPurchase: "return_to_wallet",
+          sellTiming: "after_all",
+        },
+      },
+      volumeWalletSelection: {
+        volumeWalletPubkey: "VolumeWallet...5sTq",
+      },
+    });
+
+    expect(sellMode.assistantMessage.text).toBe(
+      "Reply sell strategy or sell 100 for sell mode.",
+    );
+    expect(
+      sellMode.draft?.tool === "volume_bot"
+        ? sellMode.draft.data.sellMode
+        : null,
+    ).toBeUndefined();
   });
 
   it("executes a pending volume bot and returns mock run status", () => {

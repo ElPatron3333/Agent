@@ -4,6 +4,7 @@ import type {
   VolumeBotStatus,
   VolumeBotInput,
 } from "./types";
+import { VOLUME_BOT_SELL_STRATEGY_LEG_LIMIT } from "./types";
 import { resolveMockBundleSwapRouting } from "./token-routing";
 
 const BUNDLE_LAUNCH_SERVICE_FEE_SOL = 0.1;
@@ -187,7 +188,7 @@ export function prepareVolumeBot(input: VolumeBotInput) {
   const estimatedTradingBudgetSol = input.makers * averageOrderSol;
 
   return {
-    botId: `bot_volume_${input.makers}_${input.tokenAddress}`,
+    botId: `bot_volume_${input.makers}_${input.tokenAddress}_${volumeBotPlanHash(input)}`,
     preview: {
       smithiiServiceFeeSol,
       estimatedTotalFeesSol: roundSol(
@@ -197,6 +198,24 @@ export function prepareVolumeBot(input: VolumeBotInput) {
       summaryMd: `Volume bot for ${input.tokenAddress} with ${input.makers} makers.`,
     },
   };
+}
+
+function volumeBotPlanHash(input: VolumeBotInput) {
+  return hashString(
+    JSON.stringify({
+      volumeWalletPubkey: input.volumeWalletPubkey,
+      tokenAddress: input.tokenAddress,
+      makers: input.makers,
+      orderAmount: input.orderAmount,
+      delaySeconds: input.delaySeconds,
+      onPurchase: input.onPurchase,
+      sellTiming: input.sellTiming,
+      sellMode: input.sellMode,
+      sellStrategy:
+        input.sellMode === "sell_strategy" ? input.sellStrategy : undefined,
+      globalSettings: input.globalSettings,
+    }),
+  );
 }
 
 function validateVolumeBotInput(input: VolumeBotInput) {
@@ -228,6 +247,10 @@ function validateVolumeBotInput(input: VolumeBotInput) {
   }
 
   if (input.sellMode === "sell_strategy") {
+    if (input.sellStrategy.legs.length > VOLUME_BOT_SELL_STRATEGY_LEG_LIMIT) {
+      throw new Error("Volume Bot Sell Strategy supports one leg in the MVP.");
+    }
+
     for (const leg of input.sellStrategy.legs) {
       if (
         !isPositiveRange(leg.sellPct.min, leg.sellPct.max) ||

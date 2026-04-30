@@ -28,7 +28,6 @@ import {
 import {
   buildLaunchWalletSelection,
   buildSwapWalletSelection,
-  buildVolumeWalletSelection,
   createDemoWalletRoster,
   exportPrivateKeyCsv,
   parsePrivateKeyCsv,
@@ -75,6 +74,8 @@ export function SmithiiAgentApp() {
   const [walletRoster, setWalletRoster] = useState<BrowserWalletEntry[]>(
     createDemoWalletRoster,
   );
+  const [selectedVolumeWalletPubkey, setSelectedVolumeWalletPubkey] =
+    useState("");
   const [input, setInput] = useState(
     "launch a token called Blue Frog with a 3-wallet bundle",
   );
@@ -92,6 +93,12 @@ export function SmithiiAgentApp() {
     useState("Private keys stay in browser state.");
   const [isSending, setIsSending] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const activeVolumeWalletPubkey = walletRoster.some(
+    (wallet) =>
+      wallet.role === "bundle" && wallet.pubkey === selectedVolumeWalletPubkey,
+  )
+    ? selectedVolumeWalletPubkey
+    : "";
 
   useEffect(() => {
     void refreshAuditLog();
@@ -149,7 +156,10 @@ export function SmithiiAgentApp() {
             walletRoster,
             trimmed,
           ),
-          volumeWalletSelection: volumeSelectionForDraft(draft, walletRoster),
+          volumeWalletSelection: volumeSelectionForDraft(
+            draft,
+            activeVolumeWalletPubkey,
+          ),
           globalSettings,
         }),
       });
@@ -185,6 +195,7 @@ export function SmithiiAgentApp() {
           error.message === "Bundle Swap wallet count must be a whole number from 1 to 20." ||
           error.message === "A dev wallet is required for Bundle Launch." ||
           error.message === "A bundle wallet is required for Volume Bot." ||
+          error.message === "Invalid volume wallet selection." ||
           error.message === "Invalid pending plan.")
           ? error.message
           : "The mock chat route failed. Check the dev logs and try again.";
@@ -341,6 +352,7 @@ export function SmithiiAgentApp() {
                         <th className="py-2">Token</th>
                         <th className="py-2">% supply</th>
                         <th className="py-2">Status</th>
+                        <th className="py-2">Volume</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-cyan-950/70">
@@ -357,11 +369,35 @@ export function SmithiiAgentApp() {
                               {wallet.role}
                             </span>
                           </td>
+                          <td className="py-3">
+                            {wallet.role === "bundle" ? (
+                              <button
+                                className="h-8 rounded-md border border-cyan-700 px-2 text-xs font-semibold text-cyan-100 disabled:border-emerald-700 disabled:text-emerald-200"
+                                type="button"
+                                disabled={
+                                  activeVolumeWalletPubkey === wallet.pubkey
+                                }
+                                onClick={() =>
+                                  setSelectedVolumeWalletPubkey(wallet.pubkey)
+                                }
+                              >
+                                {activeVolumeWalletPubkey === wallet.pubkey
+                                  ? "Selected"
+                                  : "Use"}
+                              </button>
+                            ) : (
+                              <span className="text-xs text-slate-600">-</span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+                <PreviewRow
+                  label="Volume wallet"
+                  value={activeVolumeWalletPubkey || "Not selected"}
+                />
                 <p className="mt-4 text-sm text-slate-400">
                   {walletImportStatus}
                 </p>
@@ -434,7 +470,7 @@ export function SmithiiAgentApp() {
                 </form>
               </Panel>
 
-              <Panel className="mt-4" title="Execution">
+              <Panel className="mt-4" title="Execution Snapshot">
                 <PreviewRow label="Status" value={executionStatus} />
                 <PreviewRow
                   label="Plan ID"
@@ -1031,15 +1067,15 @@ function swapSelectionForDraftOrIntent(
 
 function volumeSelectionForDraft(
   draft: Draft | null,
-  walletRoster: BrowserWalletEntry[],
+  selectedVolumeWalletPubkey: string,
 ) {
-  if (draft?.tool !== "volume_bot") {
+  if (draft?.tool !== "volume_bot" || !selectedVolumeWalletPubkey) {
     return null;
   }
 
-  return buildVolumeWalletSelection({
-    roster: walletRoster,
-  });
+  return {
+    volumeWalletPubkey: selectedVolumeWalletPubkey,
+  };
 }
 
 function isCompleteSwapIntentForSelection(message: string) {

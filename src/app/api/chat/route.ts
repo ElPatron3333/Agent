@@ -34,6 +34,7 @@ import {
 } from "@/lib/audit-log";
 import { normalizeGlobalSettings } from "@/lib/global-settings";
 import { resolvePlanSigningSecret } from "@/lib/plan-signing-secret";
+import { VOLUME_BOT_SELL_STRATEGY_LEG_LIMIT } from "@/lib/smithii/types";
 import type {
   LaunchWalletSelection,
   SwapWalletSelection,
@@ -154,6 +155,20 @@ export async function POST(request: Request) {
   if (volumeWalletSelection === "invalid") {
     return NextResponse.json(
       { error: "Invalid volume wallet selection." },
+      { status: 400 },
+    );
+  }
+
+  if (completeVolumeBotDraftNeedsWallet(draft) && !volumeWalletSelection) {
+    return NextResponse.json(
+      { error: "Invalid volume wallet selection." },
+      { status: 400 },
+    );
+  }
+
+  if (pendingPlan && draft && isConfirmMessage(body.message)) {
+    return NextResponse.json(
+      { error: "Confirm requests cannot include a draft." },
       { status: 400 },
     );
   }
@@ -655,6 +670,12 @@ function parseVolumeBotDraftData(
     if (!isRecord(value.sellStrategy) || !Array.isArray(value.sellStrategy.legs)) {
       return "invalid";
     }
+    if (
+      value.sellStrategy.legs.length === 0 ||
+      value.sellStrategy.legs.length > VOLUME_BOT_SELL_STRATEGY_LEG_LIMIT
+    ) {
+      return "invalid";
+    }
     const legs = value.sellStrategy.legs.map((leg) => {
       if (
         !isRecord(leg) ||
@@ -819,6 +840,27 @@ function swapWalletSelectionMatchesDraft(
   }
 
   return swapWalletSelection.participatingWallets.length >= walletCount;
+}
+
+function completeVolumeBotDraftNeedsWallet(draft: Draft | null) {
+  if (draft?.tool !== "volume_bot") {
+    return false;
+  }
+
+  const data = draft.data;
+  if (
+    !data.tokenAddress ||
+    !data.makers ||
+    !data.orderAmount ||
+    !data.delaySeconds ||
+    !data.onPurchase ||
+    !data.sellTiming ||
+    !data.sellMode
+  ) {
+    return false;
+  }
+
+  return data.sellMode === "sell_100" || Boolean(data.sellStrategy);
 }
 
 function numberField(value: unknown): value is number {

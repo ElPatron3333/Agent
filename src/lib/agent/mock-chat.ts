@@ -8,6 +8,7 @@ import {
   prepareVolumeBot,
 } from "@/lib/smithii/mock";
 import { DEFAULT_GLOBAL_SETTINGS } from "@/lib/global-settings";
+import { VOLUME_BOT_SELL_STRATEGY_LEG_LIMIT } from "@/lib/smithii/types";
 import type {
   BundleSwapInput,
   BundleSwapPerTxOverrides,
@@ -1165,8 +1166,14 @@ function prepareVolumePreview(
   volumeWalletSelection: VolumeWalletSelection | null,
   globalSettings: GlobalSettings,
 ): MockChatResult {
-  const volumeWalletPubkey =
-    volumeWalletSelection?.volumeWalletPubkey ?? "VolumeWallet...5sTq";
+  if (!volumeWalletSelection) {
+    return askForVolumeField(
+      "Select a Volume Bot wallet before previewing.",
+      draft,
+    );
+  }
+
+  const { volumeWalletPubkey } = volumeWalletSelection;
   const input: VolumeBotInput =
     draft.data.sellMode === "sell_strategy"
       ? {
@@ -1427,7 +1434,10 @@ function requireCompleteVolumeBotDraft(
   }
 
   if (sellMode === "sell_strategy") {
-    if (!sellStrategy?.legs.length) {
+    if (
+      !sellStrategy?.legs.length ||
+      sellStrategy.legs.length > VOLUME_BOT_SELL_STRATEGY_LEG_LIMIT
+    ) {
       throw new Error("Volume Bot draft is incomplete.");
     }
 
@@ -1619,10 +1629,16 @@ function parseNumberRange(value: string) {
 
 function parseVolumeOnPurchase(value: string): VolumeBotInput["onPurchase"] | null {
   const normalized = value.trim().toLowerCase();
-  if (/\bauto\s*sell\b|\bsell\b/.test(normalized)) {
+  const autoSell = /\bauto\s*sell\b|\bsell\b/.test(normalized);
+  const returnToWallet = /\breturn\b|\bwallet\b/.test(normalized);
+
+  if (autoSell === returnToWallet) {
+    return null;
+  }
+  if (autoSell) {
     return "auto_sell";
   }
-  if (/\breturn\b|\bwallet\b/.test(normalized)) {
+  if (returnToWallet) {
     return "return_to_wallet";
   }
 
@@ -1631,10 +1647,16 @@ function parseVolumeOnPurchase(value: string): VolumeBotInput["onPurchase"] | nu
 
 function parseVolumeSellTiming(value: string): VolumeBotInput["sellTiming"] | null {
   const normalized = value.trim().toLowerCase();
-  if (/\bafter\s*each\b|\beach\b/.test(normalized)) {
+  const afterEach = /\bafter\s*each\b|\beach\b/.test(normalized);
+  const afterAll = /\bafter\s*all\b|\ball\b/.test(normalized);
+
+  if (afterEach === afterAll) {
+    return null;
+  }
+  if (afterEach) {
     return "after_each";
   }
-  if (/\bafter\s*all\b|\ball\b/.test(normalized)) {
+  if (afterAll) {
     return "after_all";
   }
 
@@ -1643,10 +1665,16 @@ function parseVolumeSellTiming(value: string): VolumeBotInput["sellTiming"] | nu
 
 function parseVolumeSellMode(value: string): VolumeBotInput["sellMode"] | null {
   const normalized = value.trim().toLowerCase();
-  if (/\bsell\s*100\b|\b100%?\b|\ball\b/.test(normalized)) {
+  const sell100 = /\bsell\s*100\b|\b100%?\b|\ball\b/.test(normalized);
+  const sellStrategy = /\bstrategy\b/.test(normalized);
+
+  if (sell100 === sellStrategy) {
+    return null;
+  }
+  if (sell100) {
     return "sell_100";
   }
-  if (/\bstrategy\b/.test(normalized)) {
+  if (sellStrategy) {
     return "sell_strategy";
   }
 

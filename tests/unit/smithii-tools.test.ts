@@ -270,9 +270,41 @@ describe("mock Smithii tools", () => {
       globalSettings,
     });
 
-    expect(preview.botId).toBe("bot_volume_200_Mint111");
+    expect(preview.botId).toMatch(/^bot_volume_200_Mint111_/);
     expect(preview.preview.smithiiServiceFeeSol).toBe(0.05);
     expect(preview.preview.estimatedTotalFeesSol).toBe(3.05);
+  });
+
+  it("includes material volume bot config in the mock bot id", () => {
+    const baseInput: VolumeBotInput = {
+      volumeWalletPubkey: "wallet111",
+      tokenAddress: "Mint111",
+      makers: 200,
+      orderAmount: { minSol: 0.01, maxSol: 0.02 },
+      delaySeconds: { min: 10, max: 20 },
+      onPurchase: "auto_sell",
+      sellTiming: "after_each",
+      sellMode: "sell_strategy",
+      sellStrategy: {
+        legs: [
+          {
+            sellPct: { min: 1, max: 33 },
+            delaySeconds: { min: 10, max: 20 },
+          },
+        ],
+      },
+      globalSettings,
+    };
+
+    const first = prepareVolumeBot(baseInput);
+    const second = prepareVolumeBot({
+      ...baseInput,
+      orderAmount: { minSol: 0.02, maxSol: 0.03 },
+    });
+
+    expect(first.botId).toMatch(/^bot_volume_200_Mint111_/);
+    expect(second.botId).toMatch(/^bot_volume_200_Mint111_/);
+    expect(first.botId).not.toBe(second.botId);
   });
 
   it("rejects sell strategy volume bots without strategy legs", () => {
@@ -306,7 +338,7 @@ describe("mock Smithii tools", () => {
       globalSettings,
     });
 
-    expect(preview.botId).toBe("bot_volume_100_Mint111");
+    expect(preview.botId).toMatch(/^bot_volume_100_Mint111_/);
     expect(preview.preview.smithiiServiceFeeSol).toBe(0.025);
     expect(preview.preview.estimatedTotalFeesSol).toBe(3.025);
     expect(preview.preview.expectedDurationText).toBe(
@@ -363,6 +395,23 @@ describe("mock Smithii tools", () => {
         },
       }),
     ).toThrow("Volume Bot sell strategy percentages must be 1-100 min/max ranges.");
+    expect(() =>
+      prepareVolumeBot({
+        ...validInput,
+        sellStrategy: {
+          legs: [
+            {
+              sellPct: { min: 1, max: 33 },
+              delaySeconds: { min: 10, max: 20 },
+            },
+            {
+              sellPct: { min: 34, max: 66 },
+              delaySeconds: { min: 21, max: 30 },
+            },
+          ],
+        },
+      } as VolumeBotInput),
+    ).toThrow("Volume Bot Sell Strategy supports one leg in the MVP.");
   });
 
   it("returns deterministic mock volume bot status and pause results", () => {

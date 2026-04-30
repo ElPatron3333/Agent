@@ -180,7 +180,7 @@ prepare_volume_bot({
   on_purchase: 'auto_sell' | 'return_to_wallet',
   sell_timing: 'after_each' | 'after_all',
   sell_mode: 'sell_strategy' | 'sell_100',
-  sell_strategy?: {                    // required if sell_mode === 'sell_strategy'
+  sell_strategy?: {                    // required if sell_mode === 'sell_strategy'; one leg in MVP
     legs: Array<{
       sell_pct: { min: number, max: number },
       delay_seconds: { min: number, max: number },
@@ -306,7 +306,7 @@ Library-blocked phases marked **[LIB]**. Independent phases ship in parallel.
 - [FE-6] Global settings panel (Fast/Turbo, Jito Tip, MEV, Slippage).
 - [FE-7] Audit log drawer (per-session, exportable as JSON).
 - [FE-8] Empty states + first-launch onboarding flow.
-- [FE-9] Volume Bot status polling UI (progress bars, pause button).
+- [FE-9] Volume Bot status snapshot UI (mock run state, pause button); polling waits for Smithii lifecycle endpoints.
 
 ### AI / Prompt Engineering
 - [AI-1] System prompt v1 (rules: never invent tx signatures, mirror Smithii's tool surface only, confirm-before-execute).
@@ -351,7 +351,7 @@ Library-blocked phases marked **[LIB]**. Independent phases ship in parallel.
 | 2 | Wallet roster table works in browser, Import PKs reads a CSV in `privateKey` column, Export PKs downloads it. Global settings persist per session. |
 | 3 | User can chat "launch a token called X with a 5-wallet bundle" and reach a preview card. Pressing Confirm calls a stubbed `execute` and the chat shows a mock mint address. Audit log records the call. |
 | 4 | Same loop for Bundle Swap — including direction detection, quantity mode picker, and routing decision (bonding vs PumpSwap) shown in preview. |
-| 5 | Same loop for Volume Bot — including Sell Strategy modal config, status polling UI, pause button. |
+| 5 | Same loop for Volume Bot — including one-leg Sell Strategy config, explicit volume-wallet selection, mock status snapshot, pause button. |
 | 6 | "Launch then start volume after 5 min" works as one chained confirm, second step queued via BullMQ. Templates load from a TS file and apply correctly. |
 | 7 | Plan TTL enforced (expired plan_id returns 410). Rate limiter enforced. Audit log queryable. Pen-test report shows zero privkey leaks. |
 | 8 | Real `execute_*` calls succeed on Smithii sandbox (or 1 mainnet test launch with ≤0.5 SOL). 50/50 eval scenarios pass against live calls. |
@@ -530,9 +530,9 @@ User: start a volume bot on PEPE2026 with sell strategy
 Agent: Volume wallet (pick from roster):
        Makers: default 100, order amount range 0.01–0.02, delay 10–20s
        After purchase: Auto Sell or Return to Wallet?
-       Sell Strategy legs (define each leg as % range + delay range):
-[user defines 3 legs]
-Agent: [preview: service fee 0.025 SOL, total est. fees 0.3 SOL]
+       Sell Strategy leg (define % range + delay range):
+[user defines one MVP leg]
+Agent: [preview: service fee 0.025 SOL, total est. 1.525 SOL]
        Type "start" to launch.
 ```
 

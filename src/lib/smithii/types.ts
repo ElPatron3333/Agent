@@ -14,6 +14,13 @@ export type BundleSwapPerTxOverrides = {
   mevShield?: boolean;
 };
 
+export const VOLUME_BOT_SELL_STRATEGY_LEG_LIMIT = 1;
+
+type VolumeBotSellStrategyLeg = {
+  sellPct: { min: number; max: number };
+  delaySeconds: { min: number; max: number };
+};
+
 export type BundleLaunchInput = {
   dex: "pumpfun";
   token: {
@@ -75,10 +82,7 @@ type VolumeBotBaseInput = {
 type VolumeBotSellStrategy = {
   sellMode: "sell_strategy";
   sellStrategy: {
-    legs: Array<{
-      sellPct: { min: number; max: number };
-      delaySeconds: { min: number; max: number };
-    }>;
+    legs: [VolumeBotSellStrategyLeg, ...VolumeBotSellStrategyLeg[]];
   };
 };
 
