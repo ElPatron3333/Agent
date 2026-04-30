@@ -1,6 +1,7 @@
 import type {
   BundleLaunchInput,
   BundleSwapInput,
+  LaunchVolumeSequenceInput,
   VolumeBotStatus,
   VolumeBotInput,
 } from "./types";
@@ -200,6 +201,45 @@ export function prepareVolumeBot(input: VolumeBotInput) {
   };
 }
 
+export function prepareLaunchVolumeSequence(input: LaunchVolumeSequenceInput) {
+  const launch = prepareBundleLaunch(input.launch);
+  const volume = prepareVolumeBot(input.volume);
+  const hash = hashString(
+    JSON.stringify({
+      templateId: input.template.id,
+      delayMinutes: input.delayMinutes,
+      launchPlanId: launch.planId,
+      volumeBotId: volume.botId,
+    }),
+  );
+
+  return {
+    sequenceId: `sequence_launch_volume_${input.template.id}_${input.delayMinutes}_${hash}`,
+    preview: {
+      templateId: input.template.id,
+      templateName: input.template.name,
+      delayMinutes: input.delayMinutes,
+      launch: {
+        planId: launch.planId,
+        totalBuysSol: launch.preview.totalBuysSol,
+        serviceFeeSol: launch.preview.smithiiServiceFeeSol,
+        bundleWalletCount: input.launch.bundleWallets.length,
+        summaryMd: launch.preview.summaryMd,
+      },
+      volume: {
+        botId: volume.botId,
+        volumeWalletPubkey: input.volume.volumeWalletPubkey,
+        makers: input.volume.makers,
+        serviceFeeSol: volume.preview.smithiiServiceFeeSol,
+        estimatedTotalFeesSol: volume.preview.estimatedTotalFeesSol,
+        expectedDurationText: volume.preview.expectedDurationText,
+        summaryMd: volume.preview.summaryMd,
+      },
+      summaryMd: `${input.template.name} sequence: launch first, then queue Volume Bot after ${input.delayMinutes} minutes.`,
+    },
+  };
+}
+
 function volumeBotPlanHash(input: VolumeBotInput) {
   return hashString(
     JSON.stringify({
@@ -297,6 +337,21 @@ export function executeVolumeBot({ botId }: { botId: string }) {
   return {
     runId: `run_${botId}`,
     status: "started" as const,
+  };
+}
+
+export function executeLaunchVolumeSequence({ sequenceId }: { sequenceId: string }) {
+  const queuedDelayMinutes = Number.parseInt(
+    sequenceId.match(/^sequence_launch_volume_[a-z0-9_]+_(\d+)_/)?.[1] ?? "5",
+    10,
+  );
+
+  return {
+    mintAddress: "MockMint1111111111111111111111111111111111",
+    launchTxSignature: `MockBundleLaunchSignature_${sequenceId}_launch`,
+    queuedVolumeRunId: `queued_volume_${sequenceId}`,
+    queuedDelayMinutes,
+    status: "queued" as const,
   };
 }
 

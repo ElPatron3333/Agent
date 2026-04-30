@@ -12,12 +12,18 @@ import type {
   VolumeBotRun,
 } from "@/lib/agent/mock-chat";
 import {
+  readStoredLastConfig,
+  writeStoredLastConfig,
+  type LastConfigSnapshot,
+} from "@/lib/agent/last-config-memory";
+import {
   chatErrorStateForResponse,
   nextActivePreview,
 } from "@/lib/agent/client-chat-state";
 import type { AuditLogRecord } from "@/lib/audit-log-types";
 import type { GlobalSettings } from "@/lib/smithii/types";
 import { pauseVolumeBot } from "@/lib/smithii/mock";
+import { launchVolumeTemplates } from "@/lib/smithii/templates";
 import { BundleLaunchPreview } from "@/components/previews/bundle-launch-preview";
 import {
   DEFAULT_GLOBAL_SETTINGS,
@@ -88,6 +94,9 @@ export function SmithiiAgentApp() {
     useState<ActivePreview | null>(defaultPreview);
   const [executionStatus, setExecutionStatus] = useState("Waiting for preview");
   const [volumeBotRun, setVolumeBotRun] = useState<VolumeBotRun | null>(null);
+  const [lastConfig, setLastConfig] = useState<LastConfigSnapshot | null>(
+    getInitialLastConfig,
+  );
   const [auditLog, setAuditLog] = useState<AuditLogRecord[]>([]);
   const [walletImportStatus, setWalletImportStatus] =
     useState("Private keys stay in browser state.");
@@ -185,6 +194,7 @@ export function SmithiiAgentApp() {
       setPendingPlan(result.pendingPlan);
       setDraft(result.draft);
       setActivePreview((current) => nextActivePreview(result, current));
+      rememberLastConfig(result.activePreview);
       setExecutionStatus(result.executionStatus);
       setVolumeBotRun(result.volumeBotRun ?? null);
       void refreshAuditLog();
@@ -245,6 +255,16 @@ export function SmithiiAgentApp() {
     setWalletImportStatus("Exported private keys from browser state.");
   }
 
+  function rememberLastConfig(preview: ActivePreview | null) {
+    if (!preview || typeof window === "undefined") {
+      return;
+    }
+
+    const snapshot = lastConfigSnapshotForPreview(preview);
+    writeStoredLastConfig(window.localStorage, snapshot);
+    setLastConfig(snapshot);
+  }
+
   return (
     <main className="min-h-screen bg-[#070a0a] text-slate-100">
       <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[320px_1fr]">
@@ -287,6 +307,14 @@ export function SmithiiAgentApp() {
               </span>
             </div>
           </section>
+
+          <section className="mt-8">
+            <h2 className="text-sm font-semibold text-slate-200">Last config</h2>
+            <div className="mt-3 space-y-2 text-sm text-slate-300">
+              <PreviewRow label="Flow" value={lastConfig?.kind ?? "None"} />
+              <PreviewRow label="Saved" value={lastConfig?.label ?? "No saved config"} />
+            </div>
+          </section>
         </aside>
 
         <section className="flex min-w-0 flex-col">
@@ -300,6 +328,20 @@ export function SmithiiAgentApp() {
                   onClick={() => setInput(item.toLowerCase())}
                 >
                   {item}
+                </button>
+              ))}
+              {launchVolumeTemplates().map((template) => (
+                <button
+                  key={template.id}
+                  className="h-9 rounded-md border border-cyan-900/80 px-3 text-cyan-100 transition hover:border-cyan-400"
+                  type="button"
+                  onClick={() =>
+                    setInput(
+                      `launch a token called Blue Frog then start volume after 5 min with ${template.name.toLowerCase()} template`,
+                    )
+                  }
+                >
+                  {template.name}
                 </button>
               ))}
             </nav>
@@ -664,6 +706,49 @@ function getInitialGlobalSettings() {
   return readStoredGlobalSettings(window.sessionStorage);
 }
 
+function getInitialLastConfig() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return readStoredLastConfig(window.localStorage);
+}
+
+function lastConfigSnapshotForPreview(
+  preview: ActivePreview,
+): LastConfigSnapshot {
+  if (preview.kind === "launch_volume_sequence") {
+    return {
+      kind: preview.kind,
+      label: `Launch + Volume: ${preview.token}`,
+      templateId: preview.templateId,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  if (preview.kind === "bundle_launch") {
+    return {
+      kind: preview.kind,
+      label: `Bundle Launch: ${preview.token}`,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  if (preview.kind === "bundle_swap") {
+    return {
+      kind: preview.kind,
+      label: `Bundle Swap: ${preview.fromToken} to ${preview.toToken}`,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  return {
+    kind: preview.kind,
+    label: `Volume Bot: ${preview.tokenAddress}`,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function exportAuditLog(records: AuditLogRecord[]) {
   const blob = new Blob([JSON.stringify(records, null, 2)], {
     type: "application/json;charset=utf-8",
@@ -812,6 +897,49 @@ function PreviewPanel({ preview }: { preview: ActivePreview | null }) {
     );
   }
 
+  if (preview.kind === "launch_volume_sequence") {
+    return (
+      <Panel title="Launch + Volume Preview">
+        <PreviewRow label="Token" value={preview.token} />
+        <PreviewRow label="Template" value={preview.templateName} />
+        <PreviewRow label="Delay" value={`${preview.delayMinutes} minutes`} />
+        <PreviewRow
+          label="Bundle wallets"
+          value={String(preview.launch.bundleWalletCount)}
+        />
+        <PreviewRow
+          label="Bundle buys"
+          value={`${preview.launch.totalBuysSol.toFixed(2)} SOL`}
+        />
+        <PreviewRow
+          label="Launch fee"
+          value={`${preview.launch.serviceFeeSol.toFixed(2)} SOL`}
+        />
+        <PreviewRow label="Volume wallet" value={preview.volume.volumeWalletPubkey} />
+        <PreviewRow label="Makers" value={String(preview.volume.makers)} />
+        <PreviewRow
+          label="Volume fee"
+          value={`${preview.volume.serviceFeeSol.toFixed(3)} SOL`}
+        />
+        <PreviewRow
+          label="Estimated volume total"
+          value={`${preview.volume.estimatedTotalFeesSol.toFixed(3)} SOL`}
+        />
+        <PreviewRow
+          label="Speed"
+          value={settingSpeedLabel(preview.globalSettings.speed)}
+        />
+        <PreviewRow
+          label="Jito tip"
+          value={settingJitoLabel(preview.globalSettings.jitoTip)}
+        />
+        <p className="mt-4 rounded-md border border-cyan-950/80 p-3 text-sm text-slate-300">
+          {preview.summary}
+        </p>
+      </Panel>
+    );
+  }
+
   return (
     <Panel title="Volume Bot Preview">
       <PreviewRow label="Token" value={preview.tokenAddress} />
@@ -942,7 +1070,14 @@ function activePreviewId(preview: ActivePreview | null) {
     return "None";
   }
 
-  return preview.kind === "volume_bot" ? preview.botId : preview.planId;
+  if (preview.kind === "volume_bot") {
+    return preview.botId;
+  }
+  if (preview.kind === "launch_volume_sequence") {
+    return preview.sequenceId;
+  }
+
+  return preview.planId;
 }
 
 function draftSummary(draft: Draft | null) {
@@ -1220,6 +1355,14 @@ function metricValues(preview: ActivePreview | null) {
         label: "Est. total",
         value: `${preview.estimatedTotalFeesSol.toFixed(2)} SOL`,
       },
+    ];
+  }
+
+  if (preview?.kind === "launch_volume_sequence") {
+    return [
+      { label: "Template", value: preview.templateName },
+      { label: "Delay", value: `${preview.delayMinutes} min` },
+      { label: "Makers", value: String(preview.volume.makers) },
     ];
   }
 

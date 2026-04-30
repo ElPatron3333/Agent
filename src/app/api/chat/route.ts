@@ -57,6 +57,7 @@ const PENDING_PLAN_TOOLS = new Set([
   "bundle_launch",
   "bundle_swap",
   "volume_bot",
+  "launch_volume_sequence",
 ]);
 
 type PlanRecord = {

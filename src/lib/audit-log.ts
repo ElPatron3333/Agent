@@ -107,6 +107,7 @@ function isExecutionOutcome(executionStatus: string) {
   return (
     executionStatus === "Mock swap signature returned" ||
     executionStatus === "Volume bot started" ||
+    executionStatus === "Launch + Volume sequence queued" ||
     executionStatus.endsWith("... returned")
   );
 }
@@ -203,7 +204,10 @@ function isAuditEvent(value: unknown) {
 
 function isPendingPlanTool(value: unknown): value is NonNullable<AuditLogRecord["tool"]> {
   return (
-    value === "bundle_launch" || value === "bundle_swap" || value === "volume_bot"
+    value === "bundle_launch" ||
+    value === "bundle_swap" ||
+    value === "volume_bot" ||
+    value === "launch_volume_sequence"
   );
 }
 

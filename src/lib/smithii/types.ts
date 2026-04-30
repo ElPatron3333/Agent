@@ -100,3 +100,13 @@ export type VolumeBotStatus = {
   volumeDoneSol: number;
   solConsumed: number;
 };
+
+export type LaunchVolumeSequenceInput = {
+  template: {
+    id: string;
+    name: string;
+  };
+  delayMinutes: number;
+  launch: BundleLaunchInput;
+  volume: VolumeBotInput;
+};

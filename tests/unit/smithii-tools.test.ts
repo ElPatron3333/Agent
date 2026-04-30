@@ -3,14 +3,17 @@ import { describe, expect, it } from "vitest";
 import {
   prepareBundleLaunch,
   prepareBundleSwap,
+  prepareLaunchVolumeSequence,
   prepareVolumeBot,
   executeBundleLaunch,
+  executeLaunchVolumeSequence,
   executeBundleSwap,
   executeVolumeBot,
   getVolumeBotStatus,
   pauseVolumeBot,
 } from "../../src/lib/smithii/mock";
 import type { VolumeBotInput } from "../../src/lib/smithii/types";
+import { LAUNCH_VOLUME_TEMPLATES } from "../../src/lib/smithii/templates";
 
 const globalSettings = {
   speed: "fast" as const,
@@ -460,6 +463,63 @@ describe("mock Smithii tools", () => {
     expect(executeVolumeBot({ botId: "bot_volume_200_Mint111_hash123" })).toEqual({
       runId: "run_bot_volume_200_Mint111_hash123",
       status: "started",
+    });
+  });
+
+  it("prepares a launch to volume sequence from a named template", () => {
+    const template = LAUNCH_VOLUME_TEMPLATES.momentum_v1;
+    const sequence = prepareLaunchVolumeSequence({
+      template,
+      delayMinutes: 5,
+      launch: {
+        dex: "pumpfun",
+        token: {
+          name: "Blue Frog",
+          symbol: "BFROG",
+          description: "A blue frog community token.",
+          imageFileName: "blue-frog.png",
+          socialsEnabled: false,
+        },
+        modifiers: template.launch.modifiers,
+        devWalletPubkey: "dev111",
+        bundleWallets: [
+          { pubkey: "wallet111", buyAmountSol: template.launch.buyAmountSol },
+          { pubkey: "wallet222", buyAmountSol: template.launch.buyAmountSol },
+        ],
+        globalSettings,
+      },
+      volume: {
+        volumeWalletPubkey: "wallet111",
+        tokenAddress: "post_launch_mint",
+        makers: template.volume.makers,
+        orderAmount: template.volume.orderAmount,
+        delaySeconds: template.volume.delaySeconds,
+        onPurchase: template.volume.onPurchase,
+        sellTiming: template.volume.sellTiming,
+        sellMode: "sell_100",
+        globalSettings,
+      },
+    });
+
+    expect(sequence.sequenceId).toMatch(/^sequence_launch_volume_momentum_v1_5_/);
+    expect(sequence.preview.templateName).toBe("Momentum");
+    expect(sequence.preview.delayMinutes).toBe(5);
+    expect(sequence.preview.launch.totalBuysSol).toBe(0.6);
+    expect(sequence.preview.volume.makers).toBe(template.volume.makers);
+  });
+
+  it("executes a mock launch to volume sequence as launch executed and volume queued", () => {
+    expect(
+      executeLaunchVolumeSequence({
+        sequenceId: "sequence_launch_volume_momentum_v1_5_abc123",
+      }),
+    ).toEqual({
+      mintAddress: "MockMint1111111111111111111111111111111111",
+      launchTxSignature:
+        "MockBundleLaunchSignature_sequence_launch_volume_momentum_v1_5_abc123_launch",
+      queuedVolumeRunId: "queued_volume_sequence_launch_volume_momentum_v1_5_abc123",
+      queuedDelayMinutes: 5,
+      status: "queued",
     });
   });
 });

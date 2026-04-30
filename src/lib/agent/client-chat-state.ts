@@ -49,6 +49,7 @@ function shouldClearPreview(result: MockChatResult) {
       "Invalid preview",
       "Mock swap signature returned",
       "Volume bot started",
+      "Launch + Volume sequence queued",
     ].includes(result.executionStatus) ||
     result.executionStatus.endsWith("... returned")
   );

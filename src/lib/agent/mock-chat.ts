@@ -1,13 +1,16 @@
 import {
   executeBundleLaunch,
   executeBundleSwap,
+  executeLaunchVolumeSequence,
   executeVolumeBot,
   getVolumeBotStatus,
   prepareBundleLaunch,
   prepareBundleSwap,
+  prepareLaunchVolumeSequence,
   prepareVolumeBot,
 } from "@/lib/smithii/mock";
 import { DEFAULT_GLOBAL_SETTINGS } from "@/lib/global-settings";
+import { templateForMessage } from "@/lib/smithii/templates";
 import { VOLUME_BOT_SELL_STRATEGY_LEG_LIMIT } from "@/lib/smithii/types";
 import type {
   BundleSwapInput,
@@ -31,7 +34,11 @@ export type ChatMessage = {
 
 export type PendingPlan = {
   id: string;
-  tool: "bundle_launch" | "bundle_swap" | "volume_bot";
+  tool:
+    | "bundle_launch"
+    | "bundle_swap"
+    | "volume_bot"
+    | "launch_volume_sequence";
   createdAt: number;
   signature?: string;
 };
@@ -167,6 +174,27 @@ export type ActivePreview =
       expectedDurationText: string;
       globalSettings: GlobalSettings;
       summary: string;
+    }
+  | {
+      kind: "launch_volume_sequence";
+      sequenceId: string;
+      token: string;
+      templateId: string;
+      templateName: string;
+      delayMinutes: number;
+      launch: {
+        bundleWalletCount: number;
+        totalBuysSol: number;
+        serviceFeeSol: number;
+      };
+      volume: {
+        volumeWalletPubkey: string;
+        makers: number;
+        serviceFeeSol: number;
+        estimatedTotalFeesSol: number;
+      };
+      globalSettings: GlobalSettings;
+      summary: string;
     };
 
 export type MockChatInput = {
@@ -241,6 +269,16 @@ export function handleMockChat({
 
   if (isConfirmIntent(normalized)) {
     return executePendingPlan({ pendingPlan, now });
+  }
+
+  if (isLaunchVolumeSequenceIntent(normalized)) {
+    return prepareLaunchVolumeSequencePreview({
+      message,
+      now,
+      launchWalletSelection,
+      volumeWalletSelection,
+      globalSettings: resolvedGlobalSettings,
+    });
   }
 
   if (isVolumeIntent(normalized)) {
@@ -360,6 +398,21 @@ function executePendingPlan({
     };
   }
 
+  if (pendingPlan.tool === "launch_volume_sequence") {
+    const execution = executeLaunchVolumeSequence({ sequenceId: pendingPlan.id });
+
+    return {
+      assistantMessage: {
+        role: "assistant",
+        text: `Mock Bundle Launch executed. Mint: ${execution.mintAddress}. Volume Bot queued for ${execution.queuedDelayMinutes} minutes later.`,
+      },
+      pendingPlan: null,
+      activePreview: null,
+      executionStatus: "Launch + Volume sequence queued",
+      draft: null,
+    };
+  }
+
   if (pendingPlan.tool !== "volume_bot") {
     return {
       assistantMessage: {
@@ -389,6 +442,110 @@ function executePendingPlan({
       ...execution,
       ...status,
     },
+  };
+}
+
+function prepareLaunchVolumeSequencePreview({
+  message,
+  now,
+  launchWalletSelection,
+  volumeWalletSelection,
+  globalSettings,
+}: {
+  message: string;
+  now: number;
+  launchWalletSelection: LaunchWalletSelection | null;
+  volumeWalletSelection: VolumeWalletSelection | null;
+  globalSettings: GlobalSettings;
+}): MockChatResult {
+  if (!volumeWalletSelection) {
+    return {
+      assistantMessage: {
+        role: "assistant",
+        text: "Select a Volume Bot wallet before previewing a launch + volume sequence.",
+      },
+      pendingPlan: null,
+      activePreview: null,
+      executionStatus: "Collecting sequence fields",
+      draft: null,
+    };
+  }
+
+  const tokenName = parseSequenceTokenName(message) ?? "Template Token";
+  const symbol = symbolForTokenName(tokenName);
+  const template = templateForMessage(message);
+  const delayMinutes = parseSequenceDelayMinutes(message) ?? 5;
+  const walletSelection = launchWalletSelection ??
+    buildFallbackLaunchWalletSelection({
+      walletCount: 3,
+      solPerWallet: template.launch.buyAmountSol,
+    });
+  const sequence = prepareLaunchVolumeSequence({
+    template,
+    delayMinutes,
+    launch: {
+      dex: "pumpfun",
+      token: {
+        name: tokenName,
+        symbol,
+        description: `${tokenName} launch sequence prepared from ${template.name}.`,
+        imageFileName: `${symbol.toLowerCase()}.png`,
+        socialsEnabled: false,
+      },
+      modifiers: template.launch.modifiers,
+      devWalletPubkey: walletSelection.devWalletPubkey,
+      bundleWallets: walletSelection.bundleWallets.map((wallet) => ({
+        ...wallet,
+        buyAmountSol: template.launch.buyAmountSol,
+      })),
+      globalSettings,
+    },
+    volume: {
+      volumeWalletPubkey: volumeWalletSelection.volumeWalletPubkey,
+      tokenAddress: "post_launch_mint",
+      makers: template.volume.makers,
+      orderAmount: template.volume.orderAmount,
+      delaySeconds: template.volume.delaySeconds,
+      onPurchase: template.volume.onPurchase,
+      sellTiming: template.volume.sellTiming,
+      sellMode: "sell_100",
+      globalSettings,
+    },
+  });
+
+  return {
+    assistantMessage: {
+      role: "assistant",
+      text: "Launch + Volume preview is ready. Type confirm or launch to execute the mock launch and queue the mock Volume Bot.",
+    },
+    pendingPlan: {
+      id: sequence.sequenceId,
+      tool: "launch_volume_sequence",
+      createdAt: now,
+    },
+    activePreview: {
+      kind: "launch_volume_sequence",
+      sequenceId: sequence.sequenceId,
+      token: `${tokenName} / ${symbol}`,
+      templateId: template.id,
+      templateName: template.name,
+      delayMinutes,
+      launch: {
+        bundleWalletCount: sequence.preview.launch.bundleWalletCount,
+        totalBuysSol: sequence.preview.launch.totalBuysSol,
+        serviceFeeSol: sequence.preview.launch.serviceFeeSol,
+      },
+      volume: {
+        volumeWalletPubkey: volumeWalletSelection.volumeWalletPubkey,
+        makers: sequence.preview.volume.makers,
+        serviceFeeSol: sequence.preview.volume.serviceFeeSol,
+        estimatedTotalFeesSol: sequence.preview.volume.estimatedTotalFeesSol,
+      },
+      globalSettings,
+      summary: sequence.preview.summaryMd,
+    },
+    executionStatus: "Waiting for confirm",
+    draft: null,
   };
 }
 
@@ -661,6 +818,36 @@ function parseLaunchIntentWalletCount(message: string) {
   }
 
   return { walletCount };
+}
+
+function parseSequenceTokenName(message: string) {
+  const match = message.match(
+    /\b(?:called|named)\s+(.+?)(?=\s+then\b|\s+after\b|\s+with\s+(?:stealth|momentum|slow\s*burn)\b|$)/i,
+  );
+  return match?.[1]?.trim().replace(/[.?!,;:]+$/, "");
+}
+
+function parseSequenceDelayMinutes(message: string) {
+  const match = message.match(/\bafter\s+(\d{1,3})\s*(?:min|mins|minute|minutes)\b/i);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const minutes = Number.parseInt(match[1], 10);
+  return Number.isInteger(minutes) && minutes >= 1 && minutes <= 120
+    ? minutes
+    : null;
+}
+
+function symbolForTokenName(tokenName: string) {
+  const words = tokenName.match(/[a-z0-9]+/gi) ?? [];
+  if (words.length >= 2) {
+    const [firstWord = "", secondWord = ""] = words;
+    return `${firstWord[0] ?? ""}${secondWord}`.toUpperCase().slice(0, 8);
+  }
+
+  const compact = tokenName.replace(/[^a-z0-9]/gi, "").toUpperCase();
+  return compact.slice(0, 8) || "TOKEN";
 }
 
 function askForLaunchField(text: string, draft: BundleLaunchDraft): MockChatResult {
@@ -1805,4 +1992,8 @@ function isSwapIntent(message: string) {
 
 function isVolumeIntent(message: string) {
   return /\b(volume|market maker|makers)\b/.test(message);
+}
+
+function isLaunchVolumeSequenceIntent(message: string) {
+  return /\blaunch\b/.test(message) && /\bvolume\b/.test(message);
 }

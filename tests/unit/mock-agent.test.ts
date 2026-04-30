@@ -862,6 +862,66 @@ describe("mock chat agent", () => {
     });
   });
 
+  it("prepares a launch to volume sequence preview from one request", () => {
+    const result = handleMockChat({
+      message:
+        "launch a token called Blue Frog then start volume after 5 min with momentum template",
+      now,
+      launchWalletSelection: {
+        devWalletPubkey: "DevWallet...91nP",
+        bundleWallets: [
+          { pubkey: "BndlWallet...4kd9", buyAmountSol: 0.3 },
+          { pubkey: "BndlWallet...8qa2", buyAmountSol: 0.3 },
+        ],
+      },
+      volumeWalletSelection: {
+        volumeWalletPubkey: "BndlWallet...4kd9",
+      },
+    });
+
+    expect(result.assistantMessage.text).toContain("Launch + Volume preview");
+    expect(result.pendingPlan).toMatchObject({
+      tool: "launch_volume_sequence",
+      createdAt: now,
+    });
+    expect(result.activePreview).toMatchObject({
+      kind: "launch_volume_sequence",
+      token: "Blue Frog / BFROG",
+      templateId: "momentum_v1",
+      templateName: "Momentum",
+      delayMinutes: 5,
+      launch: {
+        bundleWalletCount: 2,
+        totalBuysSol: 0.6,
+      },
+      volume: {
+        volumeWalletPubkey: "BndlWallet...4kd9",
+        makers: 250,
+      },
+    });
+  });
+
+  it("executes a pending launch to volume sequence with one confirm", () => {
+    const executed = handleMockChat({
+      message: "confirm",
+      now: now + 60_000,
+      pendingPlan: {
+        id: "sequence_launch_volume_momentum_v1_5_abc123",
+        tool: "launch_volume_sequence",
+        createdAt: now,
+      },
+    });
+
+    expect(executed.assistantMessage.text).toContain(
+      "Mock Bundle Launch executed",
+    );
+    expect(executed.assistantMessage.text).toContain(
+      "Volume Bot queued for 5 minutes later",
+    );
+    expect(executed.executionStatus).toBe("Launch + Volume sequence queued");
+    expect(executed.pendingPlan).toBeNull();
+  });
+
   it("rejects confirmation without an active plan", () => {
     const result = handleMockChat({
       message: "confirm",

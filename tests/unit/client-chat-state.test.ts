@@ -46,6 +46,23 @@ describe("client chat state transitions", () => {
       executionStatus: "Invalid preview",
     });
   });
+
+  it("clears the active preview after a launch to volume sequence is queued", () => {
+    const previousPreview = bundleLaunchPreview();
+
+    const result: MockChatResult = {
+      assistantMessage: {
+        role: "assistant",
+        text: "Mock Bundle Launch executed. Volume Bot queued for 5 minutes later.",
+      },
+      pendingPlan: null,
+      activePreview: null,
+      executionStatus: "Launch + Volume sequence queued",
+      draft: null,
+    };
+
+    expect(nextActivePreview(result, previousPreview)).toBeNull();
+  });
 });
 
 function bundleLaunchPreview(): ActivePreview {
