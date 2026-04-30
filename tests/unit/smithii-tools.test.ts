@@ -95,7 +95,7 @@ describe("mock Smithii tools", () => {
       globalSettings,
     });
 
-    expect(preview.planId).toBe("plan_bundle_swap_token_to_sol_2");
+    expect(preview.planId).toMatch(/^plan_bundle_swap_token_to_sol_2_[a-z0-9]+$/);
     expect(preview.preview.serviceFeeSol).toBe(0.1);
     expect(preview.preview.routing).toBe("pumpfun_bonding");
     expect(preview.preview.perWallet).toEqual([
@@ -172,6 +172,81 @@ describe("mock Smithii tools", () => {
     ]);
   });
 
+  it("marks buy wallets without planned SOL plus fee buffer as skipped", () => {
+    const preview = prepareBundleSwap({
+      direction: "sol_to_token",
+      fromToken: "SOL",
+      toToken: "Mint111",
+      participatingWallets: [
+        { pubkey: "wallet111", solBalance: 0.6, tokenBalance: 0 },
+        { pubkey: "wallet222", solBalance: 0.52, tokenBalance: 0 },
+      ],
+      quantityMode: { type: "fixed", perTxSol: 0.5 },
+      txCount: 2,
+      txDelayBlocks: 1,
+      globalSettings,
+    });
+
+    expect(preview.preview.perWallet.map((wallet) => wallet.status)).toEqual([
+      "ready",
+      "skip_no_sol_for_fees",
+    ]);
+  });
+
+  it("uses distinct plan IDs for materially different bundle swaps", () => {
+    const first = prepareBundleSwap({
+      direction: "token_to_sol",
+      fromToken: "Mint111",
+      toToken: "SOL",
+      participatingWallets: [
+        { pubkey: "wallet111", solBalance: 1, tokenBalance: 20 },
+        { pubkey: "wallet222", solBalance: 1, tokenBalance: 20 },
+      ],
+      quantityMode: { type: "fixed", perTxSol: 0.1 },
+      txCount: 2,
+      txDelayBlocks: 1,
+      globalSettings,
+    });
+    const second = prepareBundleSwap({
+      direction: "token_to_sol",
+      fromToken: "OtherMint111",
+      toToken: "SOL",
+      participatingWallets: [
+        { pubkey: "wallet111", solBalance: 1, tokenBalance: 20 },
+        { pubkey: "wallet222", solBalance: 1, tokenBalance: 20 },
+      ],
+      quantityMode: { type: "fixed", perTxSol: 0.2 },
+      txCount: 2,
+      txDelayBlocks: 1,
+      globalSettings,
+    });
+
+    expect(first.planId).not.toBe(second.planId);
+    expect(first.planId).toMatch(/^plan_bundle_swap_token_to_sol_2_[a-z0-9]+$/);
+  });
+
+  it("prepares token-to-token bundle swaps", () => {
+    const preview = prepareBundleSwap({
+      direction: "token_to_token",
+      fromToken: "SourceMint111",
+      toToken: "MigratedMint111",
+      participatingWallets: [
+        { pubkey: "wallet111", solBalance: 1, tokenBalance: 20 },
+        { pubkey: "wallet222", solBalance: 1, tokenBalance: 0 },
+      ],
+      quantityMode: { type: "random_pct", minPct: 25, maxPct: 50 },
+      txCount: 2,
+      txDelayBlocks: 1,
+      globalSettings,
+    });
+
+    expect(preview.preview.routing).toBe("pumpfun_bonding");
+    expect(preview.preview.perWallet.map((wallet) => wallet.status)).toEqual([
+      "ready",
+      "skip_no_token",
+    ]);
+  });
+
   it("prepares volume bot fees from maker count", () => {
     const preview = prepareVolumeBot({
       volumeWalletPubkey: "wallet111",
@@ -221,8 +296,8 @@ describe("mock Smithii tools", () => {
       mintAddress: "MockMint1111111111111111111111111111111111",
       txSignature: "MockBundleLaunchSignature_plan_bundle_launch_2_1_125",
     });
-    expect(executeBundleSwap({ planId: "plan_bundle_swap_token_to_sol_2" })).toEqual({
-      txSignature: "MockBundleSwapSignature_plan_bundle_swap_token_to_sol_2",
+    expect(executeBundleSwap({ planId: "plan_bundle_swap_token_to_sol_2_abc" })).toEqual({
+      txSignature: "MockBundleSwapSignature_plan_bundle_swap_token_to_sol_2_abc",
       perWalletResults: [],
     });
     expect(executeVolumeBot({ botId: "bot_volume_200_Mint111" })).toEqual({

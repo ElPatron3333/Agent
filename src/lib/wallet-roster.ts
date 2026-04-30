@@ -105,6 +105,7 @@ export function buildLaunchWalletSelection({
 
   const bundleWallets = roster
     .filter((wallet) => wallet.role === "bundle")
+    .sort(compareSelectionPriority)
     .slice(0, walletCount);
 
   if (bundleWallets.length < walletCount) {
@@ -133,6 +134,7 @@ export function buildSwapWalletSelection({
 
   const participatingWallets = roster
     .filter((wallet) => wallet.role === "bundle")
+    .sort(compareSelectionPriority)
     .slice(0, walletCount);
 
   if (participatingWallets.length < walletCount) {
@@ -191,6 +193,17 @@ export function exportPrivateKeyCsv(roster: BrowserWalletEntry[]): string {
 
 function isBase58PrivateKeyShape(value: string) {
   return /^[1-9A-HJ-NP-Za-km-z]{32,128}$/.test(value);
+}
+
+function compareSelectionPriority(
+  left: BrowserWalletEntry,
+  right: BrowserWalletEntry,
+) {
+  return selectionPriority(left) - selectionPriority(right);
+}
+
+function selectionPriority(wallet: BrowserWalletEntry) {
+  return wallet.id.startsWith("imported-") ? 0 : 1;
 }
 
 function parseCsvRow(row: string) {

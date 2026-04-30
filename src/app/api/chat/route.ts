@@ -145,7 +145,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (pendingPlan && !claimPlanRecord(sessionId, pendingPlan)) {
+  if (pendingPlan && isConfirmMessage(body.message) && !claimPlanRecord(sessionId, pendingPlan)) {
     appendAuditRecord(
       auditRecordForRejectedPendingPlan({
         pendingPlan,
@@ -497,17 +497,28 @@ function parseBundleSwapDraftData(
     data.pendingQuantityModeType = value.pendingQuantityModeType;
   }
 
-  for (const key of ["txCount", "txDelayBlocks"] as const) {
-    if (value[key] !== undefined) {
-      if (
-        typeof value[key] !== "number" ||
-        !Number.isInteger(value[key]) ||
-        value[key] < 0
-      ) {
-        return "invalid";
-      }
-      data[key] = value[key];
+  if (value.txCount !== undefined) {
+    if (
+      typeof value.txCount !== "number" ||
+      !Number.isInteger(value.txCount) ||
+      value.txCount < 1 ||
+      value.txCount > 200
+    ) {
+      return "invalid";
     }
+    data.txCount = value.txCount;
+  }
+
+  if (value.txDelayBlocks !== undefined) {
+    if (
+      typeof value.txDelayBlocks !== "number" ||
+      !Number.isInteger(value.txDelayBlocks) ||
+      value.txDelayBlocks < 0 ||
+      value.txDelayBlocks > 100
+    ) {
+      return "invalid";
+    }
+    data.txDelayBlocks = value.txDelayBlocks;
   }
 
   if (value.perTxOverrides !== undefined) {
@@ -534,12 +545,17 @@ function parseBundleSwapQuantityMode(
     return numberField(value.perTxSol) ? { type: "fixed", perTxSol: value.perTxSol } : "invalid";
   }
   if (value.type === "random") {
-    return numberField(value.minSol) && numberField(value.maxSol)
+    return numberField(value.minSol) &&
+      numberField(value.maxSol) &&
+      value.minSol <= value.maxSol
       ? { type: "random", minSol: value.minSol, maxSol: value.maxSol }
       : "invalid";
   }
   if (value.type === "random_pct") {
-    return numberField(value.minPct) && numberField(value.maxPct)
+    return numberField(value.minPct) &&
+      numberField(value.maxPct) &&
+      value.minPct <= value.maxPct &&
+      value.maxPct <= 100
       ? { type: "random_pct", minPct: value.minPct, maxPct: value.maxPct }
       : "invalid";
   }
@@ -614,7 +630,7 @@ function swapWalletSelectionMatchesDraft(
   swapWalletSelection: SwapWalletSelection | null,
   draft: Draft | null,
 ) {
-  if (!swapWalletSelection || draft?.tool !== "bundle_swap") {
+  if (draft?.tool !== "bundle_swap") {
     return true;
   }
 
@@ -623,11 +639,21 @@ function swapWalletSelectionMatchesDraft(
     return true;
   }
 
+  if (!swapWalletSelection) {
+    return false;
+  }
+
   return swapWalletSelection.participatingWallets.length >= walletCount;
 }
 
 function numberField(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function isConfirmMessage(message: string) {
+  return /^(confirm|launch|start|go|yes|execute)$/.test(
+    message.trim().toLowerCase(),
+  );
 }
 
 function signPendingPlanInResult(

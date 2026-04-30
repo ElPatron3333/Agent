@@ -197,4 +197,35 @@ describe("wallet roster boundary", () => {
     });
     expect(JSON.stringify(selection)).not.toContain("privateKey");
   });
+
+  it("prefers imported bundle wallets over demo bundle wallets for selections", () => {
+    const roster = [
+      ...createDemoWalletRoster(),
+      {
+        id: "imported-1",
+        pubkey: "Imported wallet 1",
+        privateKey: "4Nd1mportedPrivateKey111111111111111111111111111",
+        solBalance: 2,
+        tokenBalance: 500,
+        pctOfSupply: 0,
+        role: "bundle" as const,
+      },
+    ];
+
+    expect(
+      buildSwapWalletSelection({
+        roster,
+        walletCount: 1,
+      }).participatingWallets,
+    ).toEqual([
+      { pubkey: "Imported wallet 1", solBalance: 2, tokenBalance: 500 },
+    ]);
+    expect(
+      buildLaunchWalletSelection({
+        roster,
+        walletCount: 1,
+        solPerWallet: 0.25,
+      }).bundleWallets,
+    ).toEqual([{ pubkey: "Imported wallet 1", buyAmountSol: 0.25 }]);
+  });
 });

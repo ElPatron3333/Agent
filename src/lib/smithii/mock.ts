@@ -65,9 +65,17 @@ export function prepareBundleSwap(input: BundleSwapInput) {
     input.quantityMode,
     input.participatingWallets.length,
   );
+  const plannedSolExposure = plannedSolExposureForWallet(
+    input.quantityMode,
+    input.participatingWallets.length,
+  );
+  const routing = resolveMockBundleSwapRouting({
+    fromToken: input.fromToken,
+    toToken: input.toToken,
+  });
 
   return {
-    planId: `plan_bundle_swap_${input.direction}_${input.participatingWallets.length}`,
+    planId: `plan_bundle_swap_${input.direction}_${input.participatingWallets.length}_${bundleSwapPlanHash(input)}`,
     preview: {
       serviceFeeSol: 0.1,
       estimatedIntervalS: roundSeconds(input.txDelayBlocks * 0.4),
@@ -77,14 +85,11 @@ export function prepareBundleSwap(input: BundleSwapInput) {
         solBalance: wallet.solBalance,
         tokenBalance: wallet.tokenBalance,
         plannedAmountSolOrPct,
-        status: swapWalletStatus(input.direction, wallet),
+        status: swapWalletStatus(input.direction, wallet, plannedSolExposure),
       })),
-      routing: resolveMockBundleSwapRouting({
-        fromToken: input.fromToken,
-        toToken: input.toToken,
-      }),
+      routing,
       perTxOverrides: input.perTxOverrides ?? {},
-      summaryMd: `Bundle swap ${input.fromToken} to ${input.toToken} across ${input.participatingWallets.length} wallets via ${resolveMockBundleSwapRouting({ fromToken: input.fromToken, toToken: input.toToken })}.`,
+      summaryMd: `Bundle swap ${input.fromToken} to ${input.toToken} across ${input.participatingWallets.length} wallets via ${routing}.`,
     },
   };
 }
@@ -106,19 +111,69 @@ function plannedAmountForWallet(
   return roundSol(quantityMode.totalSol / Math.max(walletCount, 1));
 }
 
+function plannedSolExposureForWallet(
+  quantityMode: BundleSwapInput["quantityMode"],
+  walletCount: number,
+) {
+  if (quantityMode.type === "fixed") {
+    return quantityMode.perTxSol;
+  }
+  if (quantityMode.type === "random") {
+    return quantityMode.maxSol;
+  }
+  if (quantityMode.type === "total") {
+    return roundSol(quantityMode.totalSol / Math.max(walletCount, 1));
+  }
+
+  return 0;
+}
+
 function swapWalletStatus(
   direction: BundleSwapInput["direction"],
   wallet: BundleSwapInput["participatingWallets"][number],
+  plannedSolExposure: number,
 ) {
   if (direction !== "sol_to_token" && wallet.tokenBalance <= 0) {
     return "skip_no_token" as const;
   }
 
-  if (wallet.solBalance < WALLET_BUFFER_SOL) {
+  const requiredSol =
+    direction === "sol_to_token"
+      ? plannedSolExposure + WALLET_BUFFER_SOL
+      : WALLET_BUFFER_SOL;
+
+  if (wallet.solBalance < requiredSol) {
     return "skip_no_sol_for_fees" as const;
   }
 
   return "ready" as const;
+}
+
+function bundleSwapPlanHash(input: BundleSwapInput) {
+  return hashString(
+    JSON.stringify({
+      direction: input.direction,
+      fromToken: input.fromToken,
+      toToken: input.toToken,
+      participatingWallets: input.participatingWallets.map((wallet) => ({
+        pubkey: wallet.pubkey,
+        solBalance: wallet.solBalance,
+        tokenBalance: wallet.tokenBalance,
+      })),
+      quantityMode: input.quantityMode,
+      txCount: input.txCount,
+      txDelayBlocks: input.txDelayBlocks,
+      perTxOverrides: input.perTxOverrides ?? {},
+    }),
+  );
+}
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
 }
 
 export function prepareVolumeBot(input: VolumeBotInput) {

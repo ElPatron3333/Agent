@@ -880,6 +880,13 @@ function prepareSwapPreview(
   const participatingWallets =
     swapWalletSelection?.participatingWallets.slice(0, draft.data.walletCount) ??
     buildFallbackSwapWalletSelection(draft.data.walletCount).participatingWallets;
+  if (participatingWallets.length < draft.data.walletCount) {
+    return askForSwapField(
+      `I need ${draft.data.walletCount} participating bundle wallets before I can prepare this preview.`,
+      draft,
+    );
+  }
+
   const plan = prepareBundleSwap({
     direction: draft.data.direction,
     fromToken: draft.data.fromToken,
@@ -1027,6 +1034,7 @@ function buildSwapDraftFromIntent(message: string): BundleSwapDraft {
     tool: "bundle_swap",
     data: {
       ...(direction ? { direction } : {}),
+      ...(direction === "sol_to_token" ? { fromToken: "SOL" } : {}),
       ...(direction === "token_to_sol"
         ? { fromToken: "SCATMint111", toToken: "SOL" }
         : {}),
@@ -1208,9 +1216,15 @@ function parseQuantityModeAmount(
     return { type, perTxSol: numbers[0] };
   }
   if (type === "random" && numbers.length >= 2) {
+    if (numbers[0] > numbers[1]) {
+      return null;
+    }
     return { type, minSol: numbers[0], maxSol: numbers[1] };
   }
   if (type === "random_pct" && numbers.length >= 2) {
+    if (numbers[0] > numbers[1] || numbers[1] > 100) {
+      return null;
+    }
     return { type, minPct: numbers[0], maxPct: numbers[1] };
   }
 
@@ -1345,7 +1359,7 @@ function isLaunchIntent(message: string) {
 }
 
 function isSwapIntent(message: string) {
-  return /\b(sell|swap|dump)\b/.test(message);
+  return /\b(sell|swap|dump|buy)\b/.test(message);
 }
 
 function isVolumeIntent(message: string) {

@@ -718,7 +718,12 @@ function PreviewPanel({ preview }: { preview: ActivePreview | null }) {
                   <td className="py-2 text-slate-200">{wallet.pubkey}</td>
                   <td className="py-2">{wallet.solBalance.toFixed(2)}</td>
                   <td className="py-2">{wallet.tokenBalance}</td>
-                  <td className="py-2">{wallet.plannedAmountSolOrPct}</td>
+                  <td className="py-2">
+                    {plannedAmountLabel(
+                      preview.quantityModeLabel,
+                      wallet.plannedAmountSolOrPct,
+                    )}
+                  </td>
                   <td className="py-2">{walletStatusLabel(wallet.status)}</td>
                 </tr>
               ))}
@@ -904,8 +909,8 @@ function swapSelectionForDraftOrIntent(
   const walletCount =
     draft?.tool === "bundle_swap" && draft.data.walletCount
       ? draft.data.walletCount
-      : /\b(sell|swap|dump)\b/i.test(message)
-        ? 3
+      : isCompleteSwapIntentForSelection(message)
+        ? swapIntentWalletCount(message) ?? 3
         : null;
 
   if (!walletCount) {
@@ -916,6 +921,25 @@ function swapSelectionForDraftOrIntent(
     roster: walletRoster,
     walletCount,
   });
+}
+
+function isCompleteSwapIntentForSelection(message: string) {
+  return (
+    /\b(sell|dump|swap)\b/i.test(message) &&
+    /\b(\d+(?:\.\d+)?)\s*(?:percent|pct|%|sol)\b/i.test(message)
+  );
+}
+
+function swapIntentWalletCount(message: string) {
+  const match = message.match(/\b(\d{1,2})\s*[- ]?(?:bundle\s*)?wallets?\b/i);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const walletCount = Number.parseInt(match[1], 10);
+  return Number.isInteger(walletCount) && walletCount >= 1 && walletCount <= 20
+    ? walletCount
+    : null;
 }
 
 function addMockWallet(current: BrowserWalletEntry[]) {
@@ -993,6 +1017,10 @@ function perTxOverrideLabel(
   ].filter(Boolean);
 
   return parts.length ? parts.join(", ") : "Defaults";
+}
+
+function plannedAmountLabel(quantityModeLabel: string, amount: number) {
+  return quantityModeLabel.includes("%") ? `${amount}%` : `${amount} SOL`;
 }
 
 function walletStatusLabel(

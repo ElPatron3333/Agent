@@ -411,6 +411,113 @@ describe("/api/chat route", () => {
     ]);
   });
 
+  it("rejects complete bundle swap drafts without a public wallet selection", async () => {
+    const response = await POST(
+      jsonRequest({
+        message: "skip",
+        draft: {
+          tool: "bundle_swap",
+          data: completeSwapDraftData(),
+        },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await responseJson(response)).toEqual({
+      error: "Invalid swap wallet selection.",
+    });
+  });
+
+  it("rejects bundle swap drafts outside route-level numeric limits", async () => {
+    for (const data of [
+      { ...completeSwapDraftData(), txCount: 0 },
+      { ...completeSwapDraftData(), txCount: 201 },
+      { ...completeSwapDraftData(), txDelayBlocks: 101 },
+      {
+        ...completeSwapDraftData(),
+        quantityMode: { type: "random_pct", minPct: 120, maxPct: 150 },
+      },
+      {
+        ...completeSwapDraftData(),
+        quantityMode: { type: "random", minSol: 0.3, maxSol: 0.1 },
+      },
+    ]) {
+      const response = await POST(
+        jsonRequest({
+          message: "skip",
+          draft: {
+            tool: "bundle_swap",
+            data,
+          },
+          swapWalletSelection: {
+            participatingWallets: [
+              { pubkey: "wallet111", solBalance: 1, tokenBalance: 10 },
+            ],
+          },
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await responseJson(response)).toEqual({
+        error: "Invalid draft.",
+      });
+    }
+  });
+
+  it("does not consume a pending plan on non-confirm draft requests", async () => {
+    const previewResponse = await POST(
+      jsonRequest({
+        message: "no",
+        draft: {
+          tool: "bundle_launch",
+          data: completeLaunchDraftData(),
+        },
+        launchWalletSelection: {
+          devWalletPubkey: "DevWallet...91nP",
+          bundleWallets: [{ pubkey: "BndlWallet...4kd9", buyAmountSol: 0.1 }],
+        },
+      }),
+    );
+    const preview = await responseJson(previewResponse);
+    const cookie = cookieHeaderFrom(previewResponse);
+
+    const draftResponse = await POST(
+      jsonRequest(
+        {
+          message: "NEWTICKER",
+          pendingPlan: preview.pendingPlan,
+          draft: {
+            tool: "bundle_launch",
+            data: {
+              tokenName: "Other Token",
+            },
+          },
+        },
+        cookie,
+      ),
+    );
+
+    expect(draftResponse.status).toBe(200);
+    expect(await responseJson(draftResponse)).toMatchObject({
+      executionStatus: "Collecting launch fields",
+    });
+
+    const confirmResponse = await POST(
+      jsonRequest(
+        {
+          message: "confirm",
+          pendingPlan: preview.pendingPlan,
+        },
+        cookie,
+      ),
+    );
+
+    expect(confirmResponse.status).toBe(200);
+    expect(JSON.stringify(await responseJson(confirmResponse))).toContain(
+      "Mock Bundle Launch executed",
+    );
+  });
+
   it("records expired confirmation attempts in the local audit log", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-30T00:00:00.000Z"));
@@ -524,5 +631,17 @@ function completeLaunchDraftData() {
     cashbackCoin: false,
     useDifferentBlocks: true,
     pregenerateTokenAddress: false,
+  };
+}
+
+function completeSwapDraftData() {
+  return {
+    direction: "token_to_sol",
+    fromToken: "SCATMint111",
+    toToken: "SOL",
+    walletCount: 1,
+    quantityMode: { type: "fixed", perTxSol: 0.2 },
+    txCount: 2,
+    txDelayBlocks: 1,
   };
 }

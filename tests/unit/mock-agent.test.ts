@@ -427,6 +427,100 @@ describe("mock chat agent", () => {
     });
   });
 
+  it("starts a bundle swap draft from a top-level buy request", () => {
+    const result = handleMockChat({
+      message: "buy 0.2 SOL with 3 wallets",
+      now,
+    });
+
+    expect(result.executionStatus).toBe("Collecting swap fields");
+    expect(result.assistantMessage.text).toBe(
+      "What token should the swap end with?",
+    );
+    expect(result.draft).toMatchObject({
+      tool: "bundle_swap",
+      data: {
+        direction: "sol_to_token",
+        fromToken: "SOL",
+        walletCount: 3,
+        quantityMode: { type: "fixed", perTxSol: 0.2 },
+      },
+    });
+  });
+
+  it("does not prepare a swap preview when the selected wallet count is short", () => {
+    const result = handleMockChat({
+      message: "sell 80 percent from 10 bundle wallets",
+      now,
+    });
+
+    expect(result.pendingPlan).toBeNull();
+    expect(result.activePreview).toBeNull();
+    expect(result.executionStatus).toBe("Collecting swap fields");
+    expect(result.assistantMessage.text).toBe(
+      "I need 10 participating bundle wallets before I can prepare this preview.",
+    );
+  });
+
+  it("rejects invalid random percent ranges during swap collection", () => {
+    const result = handleMockChat({
+      message: "120 to 150",
+      now,
+      draft: {
+        tool: "bundle_swap",
+        data: {
+          direction: "token_to_sol",
+          fromToken: "SCATMint111",
+          toToken: "SOL",
+          walletCount: 2,
+          pendingQuantityModeType: "random_pct",
+        },
+      },
+    });
+
+    expect(result.pendingPlan).toBeNull();
+    expect(result.activePreview).toBeNull();
+    expect(result.assistantMessage.text).toBe(
+      "What random percent range should I use? Example: 80 to 100.",
+    );
+  });
+
+  it("prepares a token-to-token bundle swap preview", () => {
+    const result = handleMockChat({
+      message: "skip",
+      now,
+      draft: {
+        tool: "bundle_swap",
+        data: {
+          direction: "token_to_token",
+          fromToken: "SourceMint111",
+          toToken: "MigratedMint111",
+          walletCount: 2,
+          quantityMode: { type: "random_pct", minPct: 25, maxPct: 50 },
+          txCount: 2,
+          txDelayBlocks: 1,
+        },
+      },
+      swapWalletSelection: {
+        participatingWallets: [
+          { pubkey: "wallet111", solBalance: 1, tokenBalance: 20 },
+          { pubkey: "wallet222", solBalance: 1, tokenBalance: 0 },
+        ],
+      },
+    });
+
+    expect(result.pendingPlan?.tool).toBe("bundle_swap");
+    expect(result.activePreview).toMatchObject({
+      kind: "bundle_swap",
+      direction: "token_to_token",
+      fromToken: "SourceMint111",
+      toToken: "MigratedMint111",
+      readyWallets: 1,
+      skippedWallets: 1,
+      quantityModeLabel: "Random 25-50%",
+    });
+  });
+
   it("collects bundle swap fields before preparing a roster-backed preview", () => {
     const started = handleMockChat({
       message: "prepare a bundle swap",
