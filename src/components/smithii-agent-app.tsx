@@ -18,6 +18,7 @@ import {
 } from "@/lib/agent/last-config-memory";
 import {
   chatErrorStateForResponse,
+  inputForLastConfig,
   nextActivePreview,
 } from "@/lib/agent/client-chat-state";
 import type { AuditLogRecord } from "@/lib/audit-log-types";
@@ -168,6 +169,7 @@ export function SmithiiAgentApp() {
           volumeWalletSelection: volumeSelectionForDraft(
             draft,
             activeVolumeWalletPubkey,
+            trimmed,
           ),
           globalSettings,
         }),
@@ -314,6 +316,18 @@ export function SmithiiAgentApp() {
               <PreviewRow label="Flow" value={lastConfig?.kind ?? "None"} />
               <PreviewRow label="Saved" value={lastConfig?.label ?? "No saved config"} />
             </div>
+            <button
+              className="mt-3 h-9 w-full rounded-md border border-cyan-700 px-3 text-sm font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              disabled={!lastConfig}
+              onClick={() => {
+                if (lastConfig) {
+                  setInput(inputForLastConfig(lastConfig));
+                }
+              }}
+            >
+              Reuse
+            </button>
           </section>
         </aside>
 
@@ -1203,8 +1217,16 @@ function swapSelectionForDraftOrIntent(
 function volumeSelectionForDraft(
   draft: Draft | null,
   selectedVolumeWalletPubkey: string,
+  message: string,
 ) {
-  if (draft?.tool !== "volume_bot" || !selectedVolumeWalletPubkey) {
+  if (!selectedVolumeWalletPubkey) {
+    return null;
+  }
+
+  const isVolumeDraft = draft?.tool === "volume_bot";
+  const isSequenceIntent = /\blaunch\b/i.test(message) && /\bvolume\b/i.test(message);
+
+  if (!isVolumeDraft && !isSequenceIntent) {
     return null;
   }
 

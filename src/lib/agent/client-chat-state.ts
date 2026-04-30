@@ -1,4 +1,5 @@
 import type { ActivePreview, MockChatResult } from "@/lib/agent/mock-chat";
+import type { LastConfigSnapshot } from "@/lib/agent/last-config-memory";
 
 const GENERIC_CHAT_ERROR =
   "The mock chat route failed. Check the dev logs and try again.";
@@ -40,6 +41,28 @@ export function chatErrorStateForResponse(error: string | null | undefined) {
     clearPendingPlan: false,
     clearActivePreview: false,
   };
+}
+
+export function inputForLastConfig(config: LastConfigSnapshot) {
+  if (config.kind === "launch_volume_sequence") {
+    const token = config.label.match(/Launch \+ Volume: (.+?)(?:\s\/\s.+)?$/)?.[1] ??
+      "Template Token";
+    const template = templateLabel(config.templateId);
+    return `launch a token called ${token} then start volume after 5 min with ${template} template`;
+  }
+
+  return `repeat ${config.label}`;
+}
+
+function templateLabel(templateId: string | undefined) {
+  if (templateId === "stealth_v1") {
+    return "stealth";
+  }
+  if (templateId === "slow_burn_v1") {
+    return "slow burn";
+  }
+
+  return "momentum";
 }
 
 function shouldClearPreview(result: MockChatResult) {

@@ -707,6 +707,62 @@ describe("/api/chat route", () => {
     });
   });
 
+  it("executes a launch to volume sequence once and rejects replay", async () => {
+    const previewResponse = await POST(
+      jsonRequest({
+        message:
+          "launch a token called Blue Frog then start volume after 5 min with momentum template",
+        launchWalletSelection: {
+          devWalletPubkey: "DevWallet...91nP",
+          bundleWallets: [
+            { pubkey: "BndlWallet...4kd9", buyAmountSol: 0.3 },
+            { pubkey: "BndlWallet...8qa2", buyAmountSol: 0.3 },
+          ],
+        },
+        volumeWalletSelection: {
+          volumeWalletPubkey: "BndlWallet...4kd9",
+        },
+      }),
+    );
+    const preview = await responseJson(previewResponse);
+    const cookie = cookieHeaderFrom(previewResponse);
+
+    expect(previewResponse.status).toBe(200);
+    expect(preview.pendingPlan).toMatchObject({
+      tool: "launch_volume_sequence",
+    });
+
+    const confirmResponse = await POST(
+      jsonRequest(
+        {
+          message: "confirm",
+          pendingPlan: preview.pendingPlan,
+        },
+        cookie,
+      ),
+    );
+
+    expect(confirmResponse.status).toBe(200);
+    expect(await responseJson(confirmResponse)).toMatchObject({
+      executionStatus: "Launch + Volume sequence queued",
+    });
+
+    const replayResponse = await POST(
+      jsonRequest(
+        {
+          message: "confirm",
+          pendingPlan: preview.pendingPlan,
+        },
+        cookie,
+      ),
+    );
+
+    expect(replayResponse.status).toBe(400);
+    expect(await responseJson(replayResponse)).toEqual({
+      error: "Invalid pending plan.",
+    });
+  });
+
   it("does not consume a pending plan on non-confirm draft requests", async () => {
     const previewResponse = await POST(
       jsonRequest({

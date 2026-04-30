@@ -922,6 +922,23 @@ describe("mock chat agent", () => {
     expect(executed.pendingPlan).toBeNull();
   });
 
+  it("reuses the saved launch to volume config from a compact repeat command", () => {
+    const result = handleMockChat({
+      message: "repeat Launch + Volume: Blue Frog / BFROG",
+      now,
+      volumeWalletSelection: {
+        volumeWalletPubkey: "BndlWallet...4kd9",
+      },
+    });
+
+    expect(result.assistantMessage.text).toContain("Launch + Volume preview");
+    expect(result.activePreview).toMatchObject({
+      kind: "launch_volume_sequence",
+      token: "Blue Frog / BFROG",
+      templateId: "momentum_v1",
+    });
+  });
+
   it("rejects confirmation without an active plan", () => {
     const result = handleMockChat({
       message: "confirm",

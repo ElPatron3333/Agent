@@ -822,7 +822,7 @@ function parseLaunchIntentWalletCount(message: string) {
 
 function parseSequenceTokenName(message: string) {
   const match = message.match(
-    /\b(?:called|named)\s+(.+?)(?=\s+then\b|\s+after\b|\s+with\s+(?:stealth|momentum|slow\s*burn)\b|$)/i,
+    /\b(?:called|named|volume:)\s+(.+?)(?=\s+then\b|\s+after\b|\s+with\s+(?:stealth|momentum|slow\s*burn)\b|\s\/\s|$)/i,
   );
   return match?.[1]?.trim().replace(/[.?!,;:]+$/, "");
 }

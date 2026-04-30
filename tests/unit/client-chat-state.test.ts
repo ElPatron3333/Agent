@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   chatErrorStateForResponse,
+  inputForLastConfig,
   nextActivePreview,
 } from "../../src/lib/agent/client-chat-state";
 import type { ActivePreview, MockChatResult } from "../../src/lib/agent/mock-chat";
@@ -62,6 +63,17 @@ describe("client chat state transitions", () => {
     };
 
     expect(nextActivePreview(result, previousPreview)).toBeNull();
+  });
+
+  it("builds a reusable input from the saved launch to volume config", () => {
+    expect(
+      inputForLastConfig({
+        kind: "launch_volume_sequence",
+        label: "Launch + Volume: Blue Frog / BFROG",
+        templateId: "momentum_v1",
+        updatedAt: "2026-04-30T20:00:00.000Z",
+      }),
+    ).toBe("launch a token called Blue Frog then start volume after 5 min with momentum template");
   });
 });
 
