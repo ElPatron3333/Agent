@@ -31,6 +31,7 @@ import {
   auditRecordForResult,
 } from "@/lib/audit-log";
 import { normalizeGlobalSettings } from "@/lib/global-settings";
+import { resolvePlanSigningSecret } from "@/lib/plan-signing-secret";
 import type { LaunchWalletSelection } from "@/lib/wallet-roster";
 
 type ChatRequest = {
@@ -41,9 +42,6 @@ type ChatRequest = {
   globalSettings?: unknown;
 };
 
-const PLAN_SIGNING_SECRET =
-  process.env.SMITHII_PLAN_SIGNING_SECRET ??
-  "smithii-agent-local-plan-signing-secret";
 const SESSION_COOKIE_NAME = "smithii_agent_session";
 
 const PENDING_PLAN_TOOLS = new Set([
@@ -440,7 +438,7 @@ function isValidPlanSignature(
 }
 
 function signPlanPayload(pendingPlan: Omit<PendingPlan, "signature">) {
-  return createHmac("sha256", PLAN_SIGNING_SECRET)
+  return createHmac("sha256", resolvePlanSigningSecret())
     .update(`${pendingPlan.id}:${pendingPlan.tool}:${pendingPlan.createdAt}`)
     .digest("base64url");
 }

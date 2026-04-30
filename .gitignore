@@ -47,5 +47,8 @@ _*.log
 # local mock server state
 .smithii-local/
 
+# local session handoff memory
+.remember/
+
 # local feature worktrees
 .worktrees/
