@@ -5,6 +5,15 @@ export type GlobalSettings = {
   slippagePct: number;
 };
 
+export type BundleSwapRouting = "pumpfun_bonding" | "pumpswap_amm";
+
+export type BundleSwapPerTxOverrides = {
+  slippagePct?: number;
+  gas?: number;
+  priority?: number;
+  mevShield?: boolean;
+};
+
 export type BundleLaunchInput = {
   dex: "pumpfun";
   token: {
@@ -48,6 +57,7 @@ export type BundleSwapInput = {
     | { type: "random_pct"; minPct: number; maxPct: number };
   txCount: number;
   txDelayBlocks: number;
+  perTxOverrides?: BundleSwapPerTxOverrides;
   globalSettings: GlobalSettings;
 };
 

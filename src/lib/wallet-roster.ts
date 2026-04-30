@@ -18,6 +18,14 @@ export type LaunchWalletSelection = {
   }>;
 };
 
+export type SwapWalletSelection = {
+  participatingWallets: Array<{
+    pubkey: string;
+    solBalance: number;
+    tokenBalance: number;
+  }>;
+};
+
 export function createDemoWalletRoster(): BrowserWalletEntry[] {
   return [
     {
@@ -108,6 +116,34 @@ export function buildLaunchWalletSelection({
     bundleWallets: bundleWallets.map((wallet) => ({
       pubkey: wallet.pubkey,
       buyAmountSol: solPerWallet,
+    })),
+  };
+}
+
+export function buildSwapWalletSelection({
+  roster,
+  walletCount,
+}: {
+  roster: BrowserWalletEntry[];
+  walletCount: number;
+}): SwapWalletSelection {
+  if (!Number.isInteger(walletCount) || walletCount < 1 || walletCount > 20) {
+    throw new Error("Bundle Swap wallet count must be a whole number from 1 to 20.");
+  }
+
+  const participatingWallets = roster
+    .filter((wallet) => wallet.role === "bundle")
+    .slice(0, walletCount);
+
+  if (participatingWallets.length < walletCount) {
+    throw new Error("Not enough bundle wallets are available.");
+  }
+
+  return {
+    participatingWallets: participatingWallets.map((wallet) => ({
+      pubkey: wallet.pubkey,
+      solBalance: wallet.solBalance,
+      tokenBalance: wallet.tokenBalance,
     })),
   };
 }

@@ -21,6 +21,7 @@ import { NextResponse } from "next/server";
 import {
   handleMockChat,
   type BundleLaunchDraft,
+  type BundleSwapDraft,
   type MockChatResult,
   type Draft,
   type PendingPlan,
@@ -32,13 +33,17 @@ import {
 } from "@/lib/audit-log";
 import { normalizeGlobalSettings } from "@/lib/global-settings";
 import { resolvePlanSigningSecret } from "@/lib/plan-signing-secret";
-import type { LaunchWalletSelection } from "@/lib/wallet-roster";
+import type {
+  LaunchWalletSelection,
+  SwapWalletSelection,
+} from "@/lib/wallet-roster";
 
 type ChatRequest = {
   message?: unknown;
   pendingPlan?: unknown;
   draft?: unknown;
   launchWalletSelection?: unknown;
+  swapWalletSelection?: unknown;
   globalSettings?: unknown;
 };
 
@@ -125,6 +130,21 @@ export async function POST(request: Request) {
     );
   }
 
+  const swapWalletSelection = parseSwapWalletSelection(body.swapWalletSelection);
+  if (swapWalletSelection === "invalid") {
+    return NextResponse.json(
+      { error: "Invalid swap wallet selection." },
+      { status: 400 },
+    );
+  }
+
+  if (!swapWalletSelectionMatchesDraft(swapWalletSelection, draft)) {
+    return NextResponse.json(
+      { error: "Invalid swap wallet selection." },
+      { status: 400 },
+    );
+  }
+
   if (pendingPlan && !claimPlanRecord(sessionId, pendingPlan)) {
     appendAuditRecord(
       auditRecordForRejectedPendingPlan({
@@ -144,6 +164,7 @@ export async function POST(request: Request) {
     pendingPlan,
     draft,
     launchWalletSelection,
+    swapWalletSelection,
     globalSettings: normalizeGlobalSettings(body.globalSettings),
   });
   appendAuditRecord(
@@ -253,16 +274,73 @@ function parseLaunchWalletSelection(
   };
 }
 
+function parseSwapWalletSelection(
+  value: unknown,
+): SwapWalletSelection | null | "invalid" {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (!isRecord(value) || !Array.isArray(value.participatingWallets)) {
+    return "invalid";
+  }
+
+  const participatingWallets = value.participatingWallets.map((wallet) => {
+    if (
+      !isRecord(wallet) ||
+      typeof wallet.pubkey !== "string" ||
+      typeof wallet.solBalance !== "number" ||
+      !Number.isFinite(wallet.solBalance) ||
+      wallet.solBalance < 0 ||
+      typeof wallet.tokenBalance !== "number" ||
+      !Number.isFinite(wallet.tokenBalance) ||
+      wallet.tokenBalance < 0
+    ) {
+      return null;
+    }
+
+    return {
+      pubkey: wallet.pubkey,
+      solBalance: wallet.solBalance,
+      tokenBalance: wallet.tokenBalance,
+    };
+  });
+
+  if (
+    participatingWallets.some((wallet) => wallet === null) ||
+    participatingWallets.length > 20
+  ) {
+    return "invalid";
+  }
+
+  return {
+    participatingWallets:
+      participatingWallets as SwapWalletSelection["participatingWallets"],
+  };
+}
+
 function parseDraft(value: unknown): Draft | null | "invalid" {
   if (value === undefined || value === null) {
     return null;
   }
 
-  if (
-    !isRecord(value) ||
-    value.tool !== "bundle_launch" ||
-    !isRecord(value.data)
-  ) {
+  if (!isRecord(value) || !isRecord(value.data)) {
+    return "invalid";
+  }
+
+  if (value.tool === "bundle_swap") {
+    const data = parseBundleSwapDraftData(value.data);
+    if (data === "invalid") {
+      return "invalid";
+    }
+
+    return {
+      tool: "bundle_swap",
+      data,
+    };
+  }
+
+  if (value.tool !== "bundle_launch") {
     return "invalid";
   }
 
@@ -359,6 +437,141 @@ function parseBundleLaunchDraftData(
   return data;
 }
 
+function parseBundleSwapDraftData(
+  value: Record<string, unknown>,
+): BundleSwapDraft["data"] | "invalid" {
+  const data: BundleSwapDraft["data"] = {};
+
+  if (value.direction !== undefined) {
+    if (
+      value.direction !== "sol_to_token" &&
+      value.direction !== "token_to_sol" &&
+      value.direction !== "token_to_token"
+    ) {
+      return "invalid";
+    }
+    data.direction = value.direction;
+  }
+
+  for (const key of ["fromToken", "toToken"] as const) {
+    if (value[key] !== undefined) {
+      if (typeof value[key] !== "string" || value[key].trim().length === 0) {
+        return "invalid";
+      }
+      data[key] = value[key];
+    }
+  }
+
+  if (value.walletCount !== undefined) {
+    if (
+      typeof value.walletCount !== "number" ||
+      !Number.isInteger(value.walletCount) ||
+      value.walletCount < 1 ||
+      value.walletCount > 20
+    ) {
+      return "invalid";
+    }
+    data.walletCount = value.walletCount;
+  }
+
+  if (value.quantityMode !== undefined) {
+    if (!isRecord(value.quantityMode)) {
+      return "invalid";
+    }
+    const quantityMode = parseBundleSwapQuantityMode(value.quantityMode);
+    if (quantityMode === "invalid") {
+      return "invalid";
+    }
+    data.quantityMode = quantityMode;
+  }
+
+  if (value.pendingQuantityModeType !== undefined) {
+    if (
+      value.pendingQuantityModeType !== "total" &&
+      value.pendingQuantityModeType !== "fixed" &&
+      value.pendingQuantityModeType !== "random" &&
+      value.pendingQuantityModeType !== "random_pct"
+    ) {
+      return "invalid";
+    }
+    data.pendingQuantityModeType = value.pendingQuantityModeType;
+  }
+
+  for (const key of ["txCount", "txDelayBlocks"] as const) {
+    if (value[key] !== undefined) {
+      if (
+        typeof value[key] !== "number" ||
+        !Number.isInteger(value[key]) ||
+        value[key] < 0
+      ) {
+        return "invalid";
+      }
+      data[key] = value[key];
+    }
+  }
+
+  if (value.perTxOverrides !== undefined) {
+    if (!isRecord(value.perTxOverrides)) {
+      return "invalid";
+    }
+    const perTxOverrides = parsePerTxOverrides(value.perTxOverrides);
+    if (perTxOverrides === "invalid") {
+      return "invalid";
+    }
+    data.perTxOverrides = perTxOverrides;
+  }
+
+  return data;
+}
+
+function parseBundleSwapQuantityMode(
+  value: Record<string, unknown>,
+): BundleSwapDraft["data"]["quantityMode"] | "invalid" {
+  if (value.type === "total") {
+    return numberField(value.totalSol) ? { type: "total", totalSol: value.totalSol } : "invalid";
+  }
+  if (value.type === "fixed") {
+    return numberField(value.perTxSol) ? { type: "fixed", perTxSol: value.perTxSol } : "invalid";
+  }
+  if (value.type === "random") {
+    return numberField(value.minSol) && numberField(value.maxSol)
+      ? { type: "random", minSol: value.minSol, maxSol: value.maxSol }
+      : "invalid";
+  }
+  if (value.type === "random_pct") {
+    return numberField(value.minPct) && numberField(value.maxPct)
+      ? { type: "random_pct", minPct: value.minPct, maxPct: value.maxPct }
+      : "invalid";
+  }
+
+  return "invalid";
+}
+
+function parsePerTxOverrides(
+  value: Record<string, unknown>,
+): BundleSwapDraft["data"]["perTxOverrides"] | "invalid" {
+  const perTxOverrides: NonNullable<BundleSwapDraft["data"]["perTxOverrides"]> =
+    {};
+
+  for (const key of ["slippagePct", "gas", "priority"] as const) {
+    if (value[key] !== undefined) {
+      if (!numberField(value[key])) {
+        return "invalid";
+      }
+      perTxOverrides[key] = value[key];
+    }
+  }
+
+  if (value.mevShield !== undefined) {
+    if (typeof value.mevShield !== "boolean") {
+      return "invalid";
+    }
+    perTxOverrides.mevShield = value.mevShield;
+  }
+
+  return perTxOverrides;
+}
+
 function parseSocials(
   value: Record<string, unknown>,
 ): BundleLaunchDraft["data"]["socials"] | "invalid" {
@@ -395,6 +608,26 @@ function launchWalletSelectionMatchesDraft(
       (wallet) => wallet.buyAmountSol === solPerWallet,
     )
   );
+}
+
+function swapWalletSelectionMatchesDraft(
+  swapWalletSelection: SwapWalletSelection | null,
+  draft: Draft | null,
+) {
+  if (!swapWalletSelection || draft?.tool !== "bundle_swap") {
+    return true;
+  }
+
+  const { walletCount } = draft.data;
+  if (walletCount === undefined) {
+    return true;
+  }
+
+  return swapWalletSelection.participatingWallets.length >= walletCount;
+}
+
+function numberField(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 function signPendingPlanInResult(

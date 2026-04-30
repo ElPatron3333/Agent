@@ -25,6 +25,7 @@ import {
 } from "@/lib/global-settings";
 import {
   buildLaunchWalletSelection,
+  buildSwapWalletSelection,
   createDemoWalletRoster,
   exportPrivateKeyCsv,
   parsePrivateKeyCsv,
@@ -38,6 +39,8 @@ const initialMessages: ChatMessage[] = [
     text: "Tell me to prepare a Bundle Launch, Bundle Swap, or Volume Bot. I will show a preview before any mock execution.",
   },
 ];
+
+type BundleSwapPreviewState = Extract<ActivePreview, { kind: "bundle_swap" }>;
 
 const defaultPreview: ActivePreview = {
   kind: "bundle_launch",
@@ -137,6 +140,11 @@ export function SmithiiAgentApp() {
           pendingPlan,
           draft,
           launchWalletSelection: launchSelectionForDraft(draft, walletRoster),
+          swapWalletSelection: swapSelectionForDraftOrIntent(
+            draft,
+            walletRoster,
+            trimmed,
+          ),
           globalSettings,
         }),
       });
@@ -168,6 +176,7 @@ export function SmithiiAgentApp() {
       const message =
         error instanceof Error &&
         (error.message === "Not enough bundle wallets are available." ||
+          error.message === "Bundle Swap wallet count must be a whole number from 1 to 20." ||
           error.message === "A dev wallet is required for Bundle Launch." ||
           error.message === "Invalid pending plan.")
           ? error.message
@@ -650,11 +659,27 @@ function PreviewPanel({ preview }: { preview: ActivePreview | null }) {
   if (preview.kind === "bundle_swap") {
     return (
       <Panel title="Bundle Swap Preview">
+        <PreviewRow label="Direction" value={directionLabel(preview.direction)} />
+        <PreviewRow label="From" value={preview.fromToken} />
+        <PreviewRow label="To" value={preview.toToken} />
         <PreviewRow label="Routing" value={preview.routing} />
-        <PreviewRow label="Wallets" value={String(preview.walletCount)} />
+        <PreviewRow
+          label="Wallets"
+          value={`${preview.readyWallets}/${preview.walletCount} ready`}
+        />
         <PreviewRow
           label="Skipped"
           value={`${preview.skippedWallets} wallet(s)`}
+        />
+        <PreviewRow label="Quantity" value={preview.quantityModeLabel} />
+        <PreviewRow label="TX count" value={String(preview.txCount)} />
+        <PreviewRow
+          label="Delay"
+          value={`${preview.txDelayBlocks} blocks (${preview.estimatedTotalS.toFixed(1)}s total)`}
+        />
+        <PreviewRow
+          label="Overrides"
+          value={perTxOverrideLabel(preview.perTxOverrides)}
         />
         <PreviewRow
           label="Speed"
@@ -676,6 +701,30 @@ function PreviewPanel({ preview }: { preview: ActivePreview | null }) {
           label="Service fee"
           value={`${preview.serviceFeeSol.toFixed(2)} SOL`}
         />
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[420px] text-left text-xs">
+            <thead className="uppercase text-slate-500">
+              <tr>
+                <th className="py-2">Wallet</th>
+                <th className="py-2">SOL</th>
+                <th className="py-2">Token</th>
+                <th className="py-2">Plan</th>
+                <th className="py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-cyan-950/70">
+              {preview.perWallet.map((wallet) => (
+                <tr key={wallet.pubkey}>
+                  <td className="py-2 text-slate-200">{wallet.pubkey}</td>
+                  <td className="py-2">{wallet.solBalance.toFixed(2)}</td>
+                  <td className="py-2">{wallet.tokenBalance}</td>
+                  <td className="py-2">{wallet.plannedAmountSolOrPct}</td>
+                  <td className="py-2">{walletStatusLabel(wallet.status)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         <p className="mt-4 rounded-md border border-cyan-950/80 p-3 text-sm text-slate-300">
           {preview.summary}
         </p>
@@ -784,6 +833,30 @@ function draftSummary(draft: Draft | null) {
     return "None";
   }
 
+  if (draft.tool === "bundle_swap") {
+    const data = draft.data;
+    if (!data.direction) {
+      return "Waiting for direction";
+    }
+    if (!data.fromToken || !data.toToken) {
+      return "Waiting for tokens";
+    }
+    if (!data.walletCount) {
+      return "Waiting for wallet count";
+    }
+    if (!data.quantityMode) {
+      return "Waiting for quantity";
+    }
+    if (!data.txCount) {
+      return "Waiting for TX count";
+    }
+    if (data.txDelayBlocks === undefined) {
+      return "Waiting for delay";
+    }
+
+    return "Ready for swap preview";
+  }
+
   const data = draft.data;
   if (!data.tokenName) {
     return "Waiting for name";
@@ -820,6 +893,28 @@ function launchSelectionForDraft(
     roster: walletRoster,
     walletCount: draft.data.walletCount,
     solPerWallet: draft.data.solPerWallet,
+  });
+}
+
+function swapSelectionForDraftOrIntent(
+  draft: Draft | null,
+  walletRoster: BrowserWalletEntry[],
+  message: string,
+) {
+  const walletCount =
+    draft?.tool === "bundle_swap" && draft.data.walletCount
+      ? draft.data.walletCount
+      : /\b(sell|swap|dump)\b/i.test(message)
+        ? 3
+        : null;
+
+  if (!walletCount) {
+    return null;
+  }
+
+  return buildSwapWalletSelection({
+    roster: walletRoster,
+    walletCount,
   });
 }
 
@@ -872,11 +967,52 @@ function settingJitoLabel(jitoTip: GlobalSettings["jitoTip"]) {
   return jitoTip === "default" ? "Default" : `${jitoTip} SOL`;
 }
 
+function directionLabel(direction: BundleSwapPreviewState["direction"]) {
+  if (direction === "sol_to_token") {
+    return "SOL to token";
+  }
+  if (direction === "token_to_sol") {
+    return "Token to SOL";
+  }
+
+  return "Token to token";
+}
+
+function perTxOverrideLabel(
+  overrides: BundleSwapPreviewState["perTxOverrides"],
+) {
+  const parts = [
+    overrides.slippagePct !== undefined
+      ? `slippage ${overrides.slippagePct}%`
+      : null,
+    overrides.gas !== undefined ? `gas ${overrides.gas}` : null,
+    overrides.priority !== undefined ? `priority ${overrides.priority}` : null,
+    overrides.mevShield !== undefined
+      ? `MEV ${overrides.mevShield ? "on" : "off"}`
+      : null,
+  ].filter(Boolean);
+
+  return parts.length ? parts.join(", ") : "Defaults";
+}
+
+function walletStatusLabel(
+  status: BundleSwapPreviewState["perWallet"][number]["status"],
+) {
+  if (status === "skip_no_token") {
+    return "No token";
+  }
+  if (status === "skip_no_sol_for_fees") {
+    return "No fee SOL";
+  }
+
+  return "Ready";
+}
+
 function metricValues(preview: ActivePreview | null) {
   if (preview?.kind === "bundle_swap") {
     return [
       { label: "Swap fee", value: `${preview.serviceFeeSol.toFixed(2)} SOL` },
-      { label: "Wallets", value: String(preview.walletCount) },
+      { label: "Ready", value: `${preview.readyWallets}/${preview.walletCount}` },
       { label: "Skipped", value: String(preview.skippedWallets) },
     ];
   }

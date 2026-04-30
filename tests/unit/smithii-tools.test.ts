@@ -116,6 +116,62 @@ describe("mock Smithii tools", () => {
     ]);
   });
 
+  it("prepares bundle swap with routing, total sizing, fee skips, and per-tx overrides", () => {
+    const preview = prepareBundleSwap({
+      direction: "sol_to_token",
+      fromToken: "SOL",
+      toToken: "MigratedMint111",
+      participatingWallets: [
+        { pubkey: "wallet111", solBalance: 1, tokenBalance: 0 },
+        { pubkey: "wallet222", solBalance: 0.01, tokenBalance: 0 },
+        { pubkey: "wallet333", solBalance: 1, tokenBalance: 0 },
+      ],
+      quantityMode: { type: "total", totalSol: 1.5 },
+      txCount: 3,
+      txDelayBlocks: 2,
+      perTxOverrides: {
+        slippagePct: 7,
+        gas: 0.00001,
+        priority: 0.0002,
+        mevShield: false,
+      },
+      globalSettings,
+    });
+
+    expect(preview.preview.routing).toBe("pumpswap_amm");
+    expect(preview.preview.estimatedIntervalS).toBe(0.8);
+    expect(preview.preview.estimatedTotalS).toBe(2.4);
+    expect(preview.preview.perTxOverrides).toEqual({
+      slippagePct: 7,
+      gas: 0.00001,
+      priority: 0.0002,
+      mevShield: false,
+    });
+    expect(preview.preview.perWallet).toEqual([
+      {
+        pubkey: "wallet111",
+        solBalance: 1,
+        tokenBalance: 0,
+        plannedAmountSolOrPct: 0.5,
+        status: "ready",
+      },
+      {
+        pubkey: "wallet222",
+        solBalance: 0.01,
+        tokenBalance: 0,
+        plannedAmountSolOrPct: 0.5,
+        status: "skip_no_sol_for_fees",
+      },
+      {
+        pubkey: "wallet333",
+        solBalance: 1,
+        tokenBalance: 0,
+        plannedAmountSolOrPct: 0.5,
+        status: "ready",
+      },
+    ]);
+  });
+
   it("prepares volume bot fees from maker count", () => {
     const preview = prepareVolumeBot({
       volumeWalletPubkey: "wallet111",

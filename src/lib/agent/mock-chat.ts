@@ -7,8 +7,15 @@ import {
   prepareVolumeBot,
 } from "@/lib/smithii/mock";
 import { DEFAULT_GLOBAL_SETTINGS } from "@/lib/global-settings";
-import type { GlobalSettings } from "@/lib/smithii/types";
-import type { LaunchWalletSelection } from "@/lib/wallet-roster";
+import type {
+  BundleSwapInput,
+  BundleSwapPerTxOverrides,
+  GlobalSettings,
+} from "@/lib/smithii/types";
+import type {
+  LaunchWalletSelection,
+  SwapWalletSelection,
+} from "@/lib/wallet-roster";
 
 export type ChatRole = "user" | "assistant";
 
@@ -46,7 +53,22 @@ export type BundleLaunchDraft = {
   };
 };
 
-export type Draft = BundleLaunchDraft;
+export type BundleSwapDraft = {
+  tool: "bundle_swap";
+  data: {
+    direction?: BundleSwapInput["direction"];
+    fromToken?: string;
+    toToken?: string;
+    walletCount?: number;
+    quantityMode?: BundleSwapInput["quantityMode"];
+    pendingQuantityModeType?: BundleSwapInput["quantityMode"]["type"];
+    txCount?: number;
+    txDelayBlocks?: number;
+    perTxOverrides?: BundleSwapPerTxOverrides;
+  };
+};
+
+export type Draft = BundleLaunchDraft | BundleSwapDraft;
 
 export type ActivePreview =
   | {
@@ -79,10 +101,27 @@ export type ActivePreview =
   | {
       kind: "bundle_swap";
       planId: string;
+      direction: BundleSwapInput["direction"];
+      fromToken: string;
+      toToken: string;
       routing: string;
       serviceFeeSol: number;
       walletCount: number;
+      readyWallets: number;
       skippedWallets: number;
+      quantityModeLabel: string;
+      txCount: number;
+      txDelayBlocks: number;
+      estimatedIntervalS: number;
+      estimatedTotalS: number;
+      perTxOverrides: BundleSwapPerTxOverrides;
+      perWallet: Array<{
+        pubkey: string;
+        solBalance: number;
+        tokenBalance: number;
+        plannedAmountSolOrPct: number;
+        status: "ready" | "skip_no_token" | "skip_no_sol_for_fees";
+      }>;
       globalSettings: GlobalSettings;
       summary: string;
     }
@@ -102,6 +141,7 @@ export type MockChatInput = {
   pendingPlan?: PendingPlan | null;
   draft?: Draft | null;
   launchWalletSelection?: LaunchWalletSelection | null;
+  swapWalletSelection?: SwapWalletSelection | null;
   globalSettings?: GlobalSettings | null;
 };
 
@@ -121,6 +161,7 @@ export function handleMockChat({
   pendingPlan = null,
   draft = null,
   launchWalletSelection = null,
+  swapWalletSelection = null,
   globalSettings = null,
 }: MockChatInput): MockChatResult {
   const normalized = message.trim().toLowerCase();
@@ -136,6 +177,16 @@ export function handleMockChat({
     });
   }
 
+  if (draft?.tool === "bundle_swap") {
+    return collectBundleSwapField({
+      draft,
+      rawMessage: message.trim(),
+      now,
+      swapWalletSelection,
+      globalSettings: resolvedGlobalSettings,
+    });
+  }
+
   if (isConfirmIntent(normalized)) {
     return executePendingPlan({ pendingPlan, now });
   }
@@ -145,7 +196,20 @@ export function handleMockChat({
   }
 
   if (isSwapIntent(normalized)) {
-    return prepareSwapPreview(now, resolvedGlobalSettings);
+    const draft = buildSwapDraftFromIntent(message);
+    if (isCompleteBundleSwapDraft(draft)) {
+      return prepareSwapPreview(
+        now,
+        draft,
+        swapWalletSelection,
+        resolvedGlobalSettings,
+      );
+    }
+
+    return askForSwapField(
+      nextSwapPrompt(draft),
+      draft,
+    );
   }
 
   if (isLaunchIntent(normalized)) {
@@ -668,24 +732,168 @@ function requireCompleteBundleLaunchDraft(
   };
 }
 
+function collectBundleSwapField({
+  draft,
+  rawMessage,
+  now,
+  swapWalletSelection,
+  globalSettings,
+}: {
+  draft: BundleSwapDraft;
+  rawMessage: string;
+  now: number;
+  swapWalletSelection: SwapWalletSelection | null;
+  globalSettings: GlobalSettings;
+}): MockChatResult {
+  const nextDraft: BundleSwapDraft = {
+    tool: "bundle_swap",
+    data: { ...draft.data },
+  };
+
+  if (!nextDraft.data.direction) {
+    const direction = parseSwapDirection(rawMessage);
+    if (!direction) {
+      return askForSwapField(
+        "Reply buy, sell, or token to token for the swap direction.",
+        nextDraft,
+      );
+    }
+    nextDraft.data.direction = direction;
+
+    return askForSwapField("What token should the swap start from?", nextDraft);
+  }
+
+  if (!nextDraft.data.fromToken) {
+    nextDraft.data.fromToken = normalizeSwapToken(rawMessage);
+
+    return askForSwapField("What token should the swap end with?", nextDraft);
+  }
+
+  if (!nextDraft.data.toToken) {
+    nextDraft.data.toToken = normalizeSwapToken(rawMessage);
+
+    return askForSwapField(
+      "How many bundle wallets should participate? Use 1-20.",
+      nextDraft,
+    );
+  }
+
+  if (!nextDraft.data.walletCount) {
+    const walletCount = Number.parseInt(rawMessage, 10);
+    if (
+      !Number.isInteger(walletCount) ||
+      walletCount < 1 ||
+      walletCount > 20
+    ) {
+      return askForSwapField(
+        "Wallet count must be a whole number from 1 to 20.",
+        nextDraft,
+      );
+    }
+    nextDraft.data.walletCount = walletCount;
+
+    return askForSwapField(
+      "Which quantity mode should I use? Reply total, fixed, random, or random percent.",
+      nextDraft,
+    );
+  }
+
+  if (!nextDraft.data.quantityMode) {
+    if (!nextDraft.data.pendingQuantityModeType) {
+      const quantityModeType = parseQuantityModeType(rawMessage);
+      if (!quantityModeType) {
+        return askForSwapField(
+          "Reply total, fixed, random, or random percent for quantity mode.",
+          nextDraft,
+        );
+      }
+      nextDraft.data.pendingQuantityModeType = quantityModeType;
+
+      return askForSwapField(quantityAmountPrompt(quantityModeType), nextDraft);
+    }
+
+    const quantityMode = parseQuantityModeAmount(
+      nextDraft.data.pendingQuantityModeType,
+      rawMessage,
+    );
+    if (!quantityMode) {
+      return askForSwapField(
+        quantityAmountPrompt(nextDraft.data.pendingQuantityModeType),
+        nextDraft,
+      );
+    }
+    nextDraft.data.quantityMode = quantityMode;
+    delete nextDraft.data.pendingQuantityModeType;
+
+    return askForSwapField("How many transactions should Smithii create?", nextDraft);
+  }
+
+  if (!nextDraft.data.txCount) {
+    const txCount = Number.parseInt(rawMessage, 10);
+    if (!Number.isInteger(txCount) || txCount < 1 || txCount > 200) {
+      return askForSwapField(
+        "Transaction count must be a whole number from 1 to 200.",
+        nextDraft,
+      );
+    }
+    nextDraft.data.txCount = txCount;
+
+    return askForSwapField("How many blocks should separate each transaction?", nextDraft);
+  }
+
+  if (nextDraft.data.txDelayBlocks === undefined) {
+    const txDelayBlocks = Number.parseInt(rawMessage, 10);
+    if (
+      !Number.isInteger(txDelayBlocks) ||
+      txDelayBlocks < 0 ||
+      txDelayBlocks > 100
+    ) {
+      return askForSwapField(
+        "TX delay blocks must be a whole number from 0 to 100.",
+        nextDraft,
+      );
+    }
+    nextDraft.data.txDelayBlocks = txDelayBlocks;
+
+    return askForSwapField(
+      "Any per-tx overrides? Example: slippage 7, gas 0.00001, priority 0.0002, mev off. Reply skip for defaults.",
+      nextDraft,
+    );
+  }
+
+  nextDraft.data.perTxOverrides = parsePerTxOverrides(rawMessage);
+
+  return prepareSwapPreview(
+    now,
+    requireCompleteBundleSwapDraft(nextDraft),
+    swapWalletSelection,
+    globalSettings,
+  );
+}
+
 function prepareSwapPreview(
   now: number,
+  draft: RequiredBundleSwapDraft,
+  swapWalletSelection: SwapWalletSelection | null,
   globalSettings: GlobalSettings,
 ): MockChatResult {
+  const participatingWallets =
+    swapWalletSelection?.participatingWallets.slice(0, draft.data.walletCount) ??
+    buildFallbackSwapWalletSelection(draft.data.walletCount).participatingWallets;
   const plan = prepareBundleSwap({
-    direction: "token_to_sol",
-    fromToken: "SCATMint111",
-    toToken: "SOL",
-    participatingWallets: [
-      { pubkey: "BndlWallet...4kd9", solBalance: 0.08, tokenBalance: 1200 },
-      { pubkey: "BndlWallet...8qa2", solBalance: 0.06, tokenBalance: 900 },
-      { pubkey: "BndlWallet...2mwp", solBalance: 0.03, tokenBalance: 0 },
-    ],
-    quantityMode: { type: "random_pct", minPct: 80, maxPct: 100 },
-    txCount: 3,
-    txDelayBlocks: 0,
+    direction: draft.data.direction,
+    fromToken: draft.data.fromToken,
+    toToken: draft.data.toToken,
+    participatingWallets,
+    quantityMode: draft.data.quantityMode,
+    txCount: draft.data.txCount,
+    txDelayBlocks: draft.data.txDelayBlocks,
+    perTxOverrides: draft.data.perTxOverrides,
     globalSettings,
   });
+  const readyWallets = plan.preview.perWallet.filter(
+    (wallet) => wallet.status === "ready",
+  ).length;
   const skippedWallets = plan.preview.perWallet.filter(
     (wallet) => wallet.status !== "ready",
   ).length;
@@ -703,10 +911,21 @@ function prepareSwapPreview(
     activePreview: {
       kind: "bundle_swap",
       planId: plan.planId,
+      direction: draft.data.direction,
+      fromToken: draft.data.fromToken,
+      toToken: draft.data.toToken,
       routing: plan.preview.routing,
       serviceFeeSol: plan.preview.serviceFeeSol,
       walletCount: plan.preview.perWallet.length,
+      readyWallets,
       skippedWallets,
+      quantityModeLabel: quantityModeLabel(draft.data.quantityMode),
+      txCount: draft.data.txCount,
+      txDelayBlocks: draft.data.txDelayBlocks,
+      estimatedIntervalS: plan.preview.estimatedIntervalS,
+      estimatedTotalS: plan.preview.estimatedTotalS,
+      perTxOverrides: plan.preview.perTxOverrides,
+      perWallet: plan.preview.perWallet,
       globalSettings,
       summary: plan.preview.summaryMd,
     },
@@ -783,6 +1002,297 @@ type RequiredBundleLaunchDraft = {
     pregenerateTokenAddress: boolean;
   };
 };
+
+type RequiredBundleSwapDraft = {
+  tool: "bundle_swap";
+  data: {
+    direction: BundleSwapInput["direction"];
+    fromToken: string;
+    toToken: string;
+    walletCount: number;
+    quantityMode: BundleSwapInput["quantityMode"];
+    txCount: number;
+    txDelayBlocks: number;
+    perTxOverrides: BundleSwapPerTxOverrides;
+  };
+};
+
+function buildSwapDraftFromIntent(message: string): BundleSwapDraft {
+  const direction = parseSwapDirection(message);
+  const quantityMode = parseQuantityModeFromIntent(message);
+  const walletCount = parseSwapWalletCount(message);
+  const inferredWalletCount = walletCount ?? (direction && quantityMode ? 3 : null);
+
+  return {
+    tool: "bundle_swap",
+    data: {
+      ...(direction ? { direction } : {}),
+      ...(direction === "token_to_sol"
+        ? { fromToken: "SCATMint111", toToken: "SOL" }
+        : {}),
+      ...(quantityMode ? { quantityMode } : {}),
+      ...(inferredWalletCount ? { walletCount: inferredWalletCount } : {}),
+      ...(direction && quantityMode
+        ? { txCount: inferredWalletCount ?? 3, txDelayBlocks: 0, perTxOverrides: {} }
+        : {}),
+    },
+  };
+}
+
+function askForSwapField(text: string, draft: BundleSwapDraft): MockChatResult {
+  return {
+    assistantMessage: {
+      role: "assistant",
+      text,
+    },
+    pendingPlan: null,
+    activePreview: null,
+    executionStatus: "Collecting swap fields",
+    draft,
+  };
+}
+
+function nextSwapPrompt(draft: BundleSwapDraft) {
+  if (!draft.data.direction) {
+    return "Which swap direction should I use? Reply buy, sell, or token to token.";
+  }
+  if (!draft.data.fromToken) {
+    return "What token should the swap start from?";
+  }
+  if (!draft.data.toToken) {
+    return "What token should the swap end with?";
+  }
+  if (!draft.data.walletCount) {
+    return "How many bundle wallets should participate? Use 1-20.";
+  }
+  if (!draft.data.quantityMode) {
+    return "Which quantity mode should I use? Reply total, fixed, random, or random percent.";
+  }
+  if (!draft.data.txCount) {
+    return "How many transactions should Smithii create?";
+  }
+  if (draft.data.txDelayBlocks === undefined) {
+    return "How many blocks should separate each transaction?";
+  }
+
+  return "Any per-tx overrides? Example: slippage 7, gas 0.00001, priority 0.0002, mev off. Reply skip for defaults.";
+}
+
+function isCompleteBundleSwapDraft(
+  draft: BundleSwapDraft,
+): draft is RequiredBundleSwapDraft {
+  return (
+    Boolean(draft.data.direction) &&
+    Boolean(draft.data.fromToken) &&
+    Boolean(draft.data.toToken) &&
+    Boolean(draft.data.walletCount) &&
+    Boolean(draft.data.quantityMode) &&
+    Boolean(draft.data.txCount) &&
+    draft.data.txDelayBlocks !== undefined
+  );
+}
+
+function requireCompleteBundleSwapDraft(
+  draft: BundleSwapDraft,
+): RequiredBundleSwapDraft {
+  if (!isCompleteBundleSwapDraft(draft)) {
+    throw new Error("Bundle Swap draft is incomplete.");
+  }
+
+  return {
+    tool: "bundle_swap",
+    data: {
+      direction: draft.data.direction,
+      fromToken: draft.data.fromToken,
+      toToken: draft.data.toToken,
+      walletCount: draft.data.walletCount,
+      quantityMode: draft.data.quantityMode,
+      txCount: draft.data.txCount,
+      txDelayBlocks: draft.data.txDelayBlocks,
+      perTxOverrides: draft.data.perTxOverrides ?? {},
+    },
+  };
+}
+
+function parseSwapDirection(value: string): BundleSwapInput["direction"] | null {
+  const normalized = value.trim().toLowerCase();
+  if (/\b(buy|sol\s*(?:to|->)\s*token)\b/.test(normalized)) {
+    return "sol_to_token";
+  }
+  if (/\b(sell|dump|token\s*(?:to|->)\s*sol)\b/.test(normalized)) {
+    return "token_to_sol";
+  }
+  if (/\btoken\s*(?:to|->)\s*token\b/.test(normalized)) {
+    return "token_to_token";
+  }
+
+  return null;
+}
+
+function normalizeSwapToken(value: string) {
+  const trimmed = value.trim();
+  return trimmed.toUpperCase() === "SOL" ? "SOL" : trimmed;
+}
+
+function parseSwapWalletCount(value: string) {
+  const match = value.match(/\b(\d{1,2})\s*[- ]?(?:bundle\s*)?wallets?\b/i);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const walletCount = Number.parseInt(match[1], 10);
+  return Number.isInteger(walletCount) && walletCount >= 1 && walletCount <= 20
+    ? walletCount
+    : null;
+}
+
+function parseQuantityModeType(
+  value: string,
+): BundleSwapInput["quantityMode"]["type"] | null {
+  const normalized = value.trim().toLowerCase();
+  if (/\brandom\s*(?:percent|pct|%)\b/.test(normalized)) {
+    return "random_pct";
+  }
+  if (/\btotal\b/.test(normalized)) {
+    return "total";
+  }
+  if (/\bfixed\b/.test(normalized)) {
+    return "fixed";
+  }
+  if (/\brandom\b/.test(normalized)) {
+    return "random";
+  }
+
+  return null;
+}
+
+function parseQuantityModeFromIntent(
+  value: string,
+): BundleSwapInput["quantityMode"] | null {
+  const pctMatch = value.match(/\b(\d+(?:\.\d+)?)\s*(?:percent|pct|%)\b/i);
+  if (pctMatch?.[1]) {
+    const pct = Number.parseFloat(pctMatch[1]);
+    if (Number.isFinite(pct) && pct > 0 && pct <= 100) {
+      return { type: "random_pct", minPct: pct, maxPct: 100 };
+    }
+  }
+
+  const solMatch = value.match(/\b(\d+(?:\.\d+)?)\s*sol\b/i);
+  if (solMatch?.[1]) {
+    const sol = Number.parseFloat(solMatch[1]);
+    if (Number.isFinite(sol) && sol > 0) {
+      return { type: "fixed", perTxSol: sol };
+    }
+  }
+
+  return null;
+}
+
+function parseQuantityModeAmount(
+  type: BundleSwapInput["quantityMode"]["type"],
+  value: string,
+): BundleSwapInput["quantityMode"] | null {
+  const numbers = value
+    .match(/\d+(?:\.\d+)?/g)
+    ?.map((number) => Number.parseFloat(number))
+    .filter((number) => Number.isFinite(number) && number > 0);
+
+  if (!numbers?.length) {
+    return null;
+  }
+
+  if (type === "total") {
+    return { type, totalSol: numbers[0] };
+  }
+  if (type === "fixed") {
+    return { type, perTxSol: numbers[0] };
+  }
+  if (type === "random" && numbers.length >= 2) {
+    return { type, minSol: numbers[0], maxSol: numbers[1] };
+  }
+  if (type === "random_pct" && numbers.length >= 2) {
+    return { type, minPct: numbers[0], maxPct: numbers[1] };
+  }
+
+  return null;
+}
+
+function quantityAmountPrompt(type: BundleSwapInput["quantityMode"]["type"]) {
+  if (type === "total") {
+    return "What total SOL amount should be split across the selected wallets?";
+  }
+  if (type === "fixed") {
+    return "How much SOL should each transaction use?";
+  }
+  if (type === "random") {
+    return "What random SOL range should I use? Example: 0.1 to 0.3.";
+  }
+
+  return "What random percent range should I use? Example: 80 to 100.";
+}
+
+function parsePerTxOverrides(value: string): BundleSwapPerTxOverrides {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized === "skip" || normalized === "default") {
+    return {};
+  }
+
+  return {
+    ...numberOverride(value, "slippage", "slippagePct"),
+    ...numberOverride(value, "gas", "gas"),
+    ...numberOverride(value, "priority", "priority"),
+    ...(normalized.includes("mev off")
+      ? { mevShield: false }
+      : normalized.includes("mev on")
+        ? { mevShield: true }
+        : {}),
+  };
+}
+
+function numberOverride<Key extends keyof BundleSwapPerTxOverrides>(
+  value: string,
+  label: string,
+  key: Key,
+): Pick<BundleSwapPerTxOverrides, Key> | Record<string, never> {
+  const match = value.match(new RegExp(`${label}\\s+(\\d+(?:\\.\\d+)?)`, "i"));
+  if (!match?.[1]) {
+    return {};
+  }
+
+  return { [key]: Number.parseFloat(match[1]) } as Pick<
+    BundleSwapPerTxOverrides,
+    Key
+  >;
+}
+
+function quantityModeLabel(quantityMode: BundleSwapInput["quantityMode"]) {
+  if (quantityMode.type === "total") {
+    return `Total ${quantityMode.totalSol} SOL`;
+  }
+  if (quantityMode.type === "fixed") {
+    return `Fixed ${quantityMode.perTxSol} SOL per tx`;
+  }
+  if (quantityMode.type === "random") {
+    return `Random ${quantityMode.minSol}-${quantityMode.maxSol} SOL`;
+  }
+
+  return `Random ${quantityMode.minPct}-${quantityMode.maxPct}%`;
+}
+
+function buildFallbackSwapWalletSelection(
+  walletCount: number,
+): SwapWalletSelection {
+  const fallbackWallets = [
+    { pubkey: "BndlWallet...4kd9", solBalance: 0.08, tokenBalance: 1200 },
+    { pubkey: "BndlWallet...8qa2", solBalance: 0.06, tokenBalance: 900 },
+    { pubkey: "BndlWallet...2mwp", solBalance: 0.03, tokenBalance: 0 },
+    { pubkey: "BndlWallet...7xq1", solBalance: 0.08, tokenBalance: 0 },
+  ];
+
+  return {
+    participatingWallets: fallbackWallets.slice(0, walletCount),
+  };
+}
 
 function parseYesNo(value: string) {
   const normalized = value.trim().toLowerCase();

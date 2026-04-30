@@ -346,6 +346,71 @@ describe("/api/chat route", () => {
     expect(JSON.stringify(records)).not.toContain("signature");
   });
 
+  it("accepts bundle swap drafts with public wallet selections and records the audit log", async () => {
+    const previewResponse = await POST(
+      jsonRequest({
+        message: "skip",
+        draft: {
+          tool: "bundle_swap",
+          data: {
+            direction: "sol_to_token",
+            fromToken: "SOL",
+            toToken: "MigratedMint111",
+            walletCount: 2,
+            quantityMode: { type: "fixed", perTxSol: 0.2 },
+            txCount: 2,
+            txDelayBlocks: 1,
+          },
+        },
+        swapWalletSelection: {
+          participatingWallets: [
+            { pubkey: "wallet111", solBalance: 1, tokenBalance: 0 },
+            { pubkey: "wallet222", solBalance: 0.01, tokenBalance: 0 },
+          ],
+        },
+      }),
+    );
+    const preview = await responseJson(previewResponse);
+    const cookie = cookieHeaderFrom(previewResponse);
+    const sessionId = sessionIdFromCookie(cookie);
+
+    expect(previewResponse.status).toBe(200);
+    expect(JSON.stringify(preview)).not.toContain("privateKey");
+    expect(preview.pendingPlan).toMatchObject({
+      tool: "bundle_swap",
+    });
+    expect(preview.activePreview).toMatchObject({
+      kind: "bundle_swap",
+      routing: "pumpswap_amm",
+      readyWallets: 1,
+      skippedWallets: 1,
+    });
+
+    const confirmResponse = await POST(
+      jsonRequest(
+        {
+          message: "confirm",
+          pendingPlan: preview.pendingPlan,
+        },
+        cookie,
+      ),
+    );
+
+    expect(confirmResponse.status).toBe(200);
+    expect(auditRecordsForSession(sessionId)).toMatchObject([
+      {
+        event: "preview_prepared",
+        tool: "bundle_swap",
+        outcome: "Waiting for confirm",
+      },
+      {
+        event: "mock_executed",
+        tool: "bundle_swap",
+        outcome: "Mock swap signature returned",
+      },
+    ]);
+  });
+
   it("records expired confirmation attempts in the local audit log", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-30T00:00:00.000Z"));

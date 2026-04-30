@@ -3,6 +3,7 @@ import type {
   BundleSwapInput,
   VolumeBotInput,
 } from "./types";
+import { resolveMockBundleSwapRouting } from "./token-routing";
 
 const BUNDLE_LAUNCH_SERVICE_FEE_SOL = 0.1;
 const PREGENERATE_TOKEN_ADDRESS_FEE_SOL = 0.1;
@@ -15,6 +16,10 @@ function roundSol(value: number) {
 
 function amountId(value: number) {
   return Math.round(value * 100).toString();
+}
+
+function roundSeconds(value: number) {
+  return Math.round(value * 10) / 10;
 }
 
 export function prepareBundleLaunch(input: BundleLaunchInput) {
@@ -56,35 +61,64 @@ export function prepareBundleSwap(input: BundleSwapInput) {
     throw new Error("Bundle Swap supports a maximum of 20 participating wallets.");
   }
 
-  const plannedAmountSolOrPct =
-    input.quantityMode.type === "random_pct"
-      ? input.quantityMode.minPct
-      : input.quantityMode.type === "fixed"
-        ? input.quantityMode.perTxSol
-        : input.quantityMode.type === "random"
-          ? input.quantityMode.minSol
-          : input.quantityMode.totalSol;
+  const plannedAmountSolOrPct = plannedAmountForWallet(
+    input.quantityMode,
+    input.participatingWallets.length,
+  );
 
   return {
     planId: `plan_bundle_swap_${input.direction}_${input.participatingWallets.length}`,
     preview: {
       serviceFeeSol: 0.1,
-      estimatedIntervalS: input.txDelayBlocks * 0.4,
-      estimatedTotalS: input.txDelayBlocks * input.txCount * 0.4,
+      estimatedIntervalS: roundSeconds(input.txDelayBlocks * 0.4),
+      estimatedTotalS: roundSeconds(input.txDelayBlocks * input.txCount * 0.4),
       perWallet: input.participatingWallets.map((wallet) => ({
         pubkey: wallet.pubkey,
         solBalance: wallet.solBalance,
         tokenBalance: wallet.tokenBalance,
         plannedAmountSolOrPct,
-        status:
-          input.direction !== "sol_to_token" && wallet.tokenBalance <= 0
-            ? ("skip_no_token" as const)
-            : ("ready" as const),
+        status: swapWalletStatus(input.direction, wallet),
       })),
-      routing: "pumpfun_bonding" as const,
-      summaryMd: `Bundle swap ${input.fromToken} to ${input.toToken} across ${input.participatingWallets.length} wallets.`,
+      routing: resolveMockBundleSwapRouting({
+        fromToken: input.fromToken,
+        toToken: input.toToken,
+      }),
+      perTxOverrides: input.perTxOverrides ?? {},
+      summaryMd: `Bundle swap ${input.fromToken} to ${input.toToken} across ${input.participatingWallets.length} wallets via ${resolveMockBundleSwapRouting({ fromToken: input.fromToken, toToken: input.toToken })}.`,
     },
   };
+}
+
+function plannedAmountForWallet(
+  quantityMode: BundleSwapInput["quantityMode"],
+  walletCount: number,
+) {
+  if (quantityMode.type === "random_pct") {
+    return quantityMode.minPct;
+  }
+  if (quantityMode.type === "fixed") {
+    return quantityMode.perTxSol;
+  }
+  if (quantityMode.type === "random") {
+    return quantityMode.minSol;
+  }
+
+  return roundSol(quantityMode.totalSol / Math.max(walletCount, 1));
+}
+
+function swapWalletStatus(
+  direction: BundleSwapInput["direction"],
+  wallet: BundleSwapInput["participatingWallets"][number],
+) {
+  if (direction !== "sol_to_token" && wallet.tokenBalance <= 0) {
+    return "skip_no_token" as const;
+  }
+
+  if (wallet.solBalance < WALLET_BUFFER_SOL) {
+    return "skip_no_sol_for_fees" as const;
+  }
+
+  return "ready" as const;
 }
 
 export function prepareVolumeBot(input: VolumeBotInput) {

@@ -427,6 +427,106 @@ describe("mock chat agent", () => {
     });
   });
 
+  it("collects bundle swap fields before preparing a roster-backed preview", () => {
+    const started = handleMockChat({
+      message: "prepare a bundle swap",
+      now,
+    });
+
+    expect(started.assistantMessage.text).toBe(
+      "Which swap direction should I use? Reply buy, sell, or token to token.",
+    );
+    expect(started.executionStatus).toBe("Collecting swap fields");
+    expect(started.draft).toMatchObject({
+      tool: "bundle_swap",
+      data: {},
+    });
+
+    const direction = handleMockChat({
+      message: "buy",
+      now,
+      draft: started.draft,
+    });
+    const fromToken = handleMockChat({
+      message: "SOL",
+      now,
+      draft: direction.draft,
+    });
+    const toToken = handleMockChat({
+      message: "MigratedMint111",
+      now,
+      draft: fromToken.draft,
+    });
+    const wallets = handleMockChat({
+      message: "3",
+      now,
+      draft: toToken.draft,
+    });
+    const quantityMode = handleMockChat({
+      message: "total",
+      now,
+      draft: wallets.draft,
+    });
+    const amount = handleMockChat({
+      message: "1.5",
+      now,
+      draft: quantityMode.draft,
+    });
+    const txCount = handleMockChat({
+      message: "3",
+      now,
+      draft: amount.draft,
+    });
+    const txDelay = handleMockChat({
+      message: "2",
+      now,
+      draft: txCount.draft,
+    });
+    const overrides = handleMockChat({
+      message: "slippage 7, gas 0.00001, priority 0.0002, mev off",
+      now,
+      draft: txDelay.draft,
+      swapWalletSelection: {
+        participatingWallets: [
+          { pubkey: "wallet111", solBalance: 1, tokenBalance: 0 },
+          { pubkey: "wallet222", solBalance: 0.01, tokenBalance: 0 },
+          { pubkey: "wallet333", solBalance: 1, tokenBalance: 0 },
+        ],
+      },
+      globalSettings: {
+        speed: "turbo",
+        jitoTip: 0.004,
+        mevProtection: true,
+        slippagePct: 5,
+      },
+    });
+
+    expect(overrides.assistantMessage.text).toContain("Bundle Swap preview");
+    expect(overrides.pendingPlan?.tool).toBe("bundle_swap");
+    expect(overrides.activePreview).toMatchObject({
+      kind: "bundle_swap",
+      direction: "sol_to_token",
+      fromToken: "SOL",
+      toToken: "MigratedMint111",
+      routing: "pumpswap_amm",
+      walletCount: 3,
+      readyWallets: 2,
+      skippedWallets: 1,
+      quantityModeLabel: "Total 1.5 SOL",
+      txCount: 3,
+      txDelayBlocks: 2,
+      estimatedTotalS: 2.4,
+      perTxOverrides: {
+        slippagePct: 7,
+        gas: 0.00001,
+        priority: 0.0002,
+        mevShield: false,
+      },
+    });
+    expect(overrides.activePreview?.summary).toContain("pumpswap_amm");
+    expect(overrides.draft).toBeNull();
+  });
+
   it("routes a volume request to a volume bot preview", () => {
     const result = handleMockChat({
       message: "start a volume bot with sell strategy",

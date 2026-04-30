@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildLaunchWalletSelection,
+  buildSwapWalletSelection,
   createDemoWalletRoster,
   exportPrivateKeyCsv,
   parsePrivateKeyCsv,
@@ -179,5 +180,21 @@ describe("wallet roster boundary", () => {
         { pubkey: "BndlWallet...8qa2", buyAmountSol: 0.75 },
       ],
     });
+  });
+
+  it("builds a swap wallet selection without private keys", () => {
+    const selection = buildSwapWalletSelection({
+      roster: createDemoWalletRoster(),
+      walletCount: 3,
+    });
+
+    expect(selection).toEqual({
+      participatingWallets: [
+        { pubkey: "BndlWallet...4kd9", solBalance: 1.2, tokenBalance: 1200 },
+        { pubkey: "BndlWallet...8qa2", solBalance: 1.1, tokenBalance: 900 },
+        { pubkey: "BndlWallet...2mwp", solBalance: 0.9, tokenBalance: 0 },
+      ],
+    });
+    expect(JSON.stringify(selection)).not.toContain("privateKey");
   });
 });
