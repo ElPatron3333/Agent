@@ -15,7 +15,7 @@ Smithii Agent is a conversational AI execution layer over Smithii's Pump.fun inf
 2. Bundle Swap (Pro — replaces legacy Bundle Sell, supports both buy and sell)
 3. Volume Bot (Pro)
 
-**Integration model:** Path A (partner) confirmed. Smithii will provide the browser-side tx-assembly module under a domain-locked + server-side-fee-enforced + signed-license arrangement. We own UX, parameter collection, conversational flow, and audit; Smithii owns tx execution.
+**Integration model:** Target model remains Path A (partner), but real execution is still blocked until Smithii provides the browser-side tx-assembly module or equivalent zero-custody handoff contract. We own UX, parameter collection, conversational flow, and audit; Smithii owns tx execution.
 
 **Critical rule:** agent capability = strict subset of what Smithii Pro UI does today. No client-side scheduling, no spend-cap behavioral rails, no behavioral nannying. If Smithii doesn't expose it, the agent doesn't do it.
 

@@ -19,7 +19,7 @@ import {
 import {
   chatErrorStateForResponse,
   inputForLastConfig,
-  nextActivePreview,
+  nextPreviewLiveState,
 } from "@/lib/agent/client-chat-state";
 import type { AuditLogRecord } from "@/lib/audit-log-types";
 import type { SmithiiLiveBoundary } from "@/lib/smithii/live-boundary";
@@ -195,13 +195,17 @@ export function SmithiiAgentApp() {
       }
 
       const result = (await response.json()) as MockChatResult;
+      const nextPreviewState = nextPreviewLiveState(result, {
+        activePreview,
+        smithiiLive,
+      });
       setMessages((current) => [...current, result.assistantMessage]);
       setPendingPlan(result.pendingPlan);
       setDraft(result.draft);
-      setActivePreview((current) => nextActivePreview(result, current));
+      setActivePreview(nextPreviewState.activePreview);
       rememberLastConfig(result.activePreview);
       setExecutionStatus(result.executionStatus);
-      setSmithiiLive(result.smithiiLive ?? null);
+      setSmithiiLive(nextPreviewState.smithiiLive);
       setVolumeBotRun(result.volumeBotRun ?? null);
       void refreshAuditLog();
     } catch (error) {

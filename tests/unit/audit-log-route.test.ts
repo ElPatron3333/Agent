@@ -12,10 +12,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GET } from "../../src/app/api/audit-log/route";
 import { appendAuditRecord } from "../../src/lib/audit-log";
 
+const AUDIT_LOG_FILE_NAME = process.env.VITEST_POOL_ID
+  ? `audit-log-${process.env.VITEST_POOL_ID}.json`
+  : "audit-log.json";
 const AUDIT_LOG_PATH = path.join(
   process.cwd(),
   ".smithii-local",
-  "audit-log.json",
+  AUDIT_LOG_FILE_NAME,
 );
 
 describe("/api/audit-log route", () => {
@@ -28,7 +31,30 @@ describe("/api/audit-log route", () => {
   });
 
   afterEach(() => {
-    if (originalAuditLog === null) {
+    const originalLines = originalAuditLog
+      ?.trim()
+      .split(/\r?\n/)
+      .filter(Boolean) ?? [];
+    const originalLineSet = new Set(originalLines);
+    const currentLines = existsSync(AUDIT_LOG_PATH)
+      ? readFileSync(AUDIT_LOG_PATH, "utf8").trim().split(/\r?\n/).filter(Boolean)
+      : [];
+    const otherTestLines = currentLines.filter((line) => {
+      if (originalLineSet.has(line)) {
+        return false;
+      }
+
+      try {
+        const record = JSON.parse(line) as { sessionId?: unknown };
+        return typeof record.sessionId !== "string" ||
+          !record.sessionId.startsWith("audit-");
+      } catch {
+        return false;
+      }
+    });
+    const restoredLines = [...originalLines, ...otherTestLines];
+
+    if (restoredLines.length === 0) {
       try {
         unlinkSync(AUDIT_LOG_PATH);
       } catch {
@@ -37,7 +63,7 @@ describe("/api/audit-log route", () => {
     }
 
     mkdirSync(path.dirname(AUDIT_LOG_PATH), { recursive: true });
-    writeFileSync(AUDIT_LOG_PATH, originalAuditLog);
+    writeFileSync(AUDIT_LOG_PATH, restoredLines.join("\n") + "\n");
   });
 
   it("returns only records for the current session without sensitive pending-plan fields", async () => {

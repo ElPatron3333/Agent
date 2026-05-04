@@ -20,7 +20,7 @@ For our Smithii Pro MVP, the useful surface is mostly @smithii/sdk/pump and @smi
 
 Smithii SDK method: PumpFunClient.createAndSnipeToken from @smithii/sdk/pump.
 
-This maps directly to our Bundle Launch preview shape for Pump.fun. The SDK requires buyer private keys in buyers[].pk, so this can only be wired from a browser/client-side execution path where the user's keys never touch our backend.
+This maps directly to our Bundle Launch preview shape for Pump.fun. The SDK requires buyer private keys in buyers[].pk, so this can only be wired from a browser/client-side execution path where the user's keys never touch our backend. The exact SDK argument name stays in this spike/internal adapter context only; public `/api/chat` live-boundary metadata uses neutral signer-material labels.
 
 The adapter maps:
 
@@ -44,7 +44,7 @@ This maps to Bundle Swap for:
 - pumpfun_bonding as pool = pump
 - pumpswap_amm as pool = pump-amm
 
-The SDK requires wallet private keys in privKeys[], so this is also browser-only for the MVP. The adapter blocks server runtime use when private keys are present.
+The SDK requires wallet private keys in privKeys[], so this is also browser-only for the MVP. The adapter blocks server runtime use when private keys are present, and public live-boundary responses must not expose this exact argument name.
 
 The SDK method does not expose token-to-token bundle swaps. Our mock preview can still collect and preview token-to-token intent, but live SDK execution needs a separate Smithii-supported path or a different swap backend before it can be enabled.
 
@@ -92,4 +92,4 @@ Current classification:
 - Volume Bot remains blocked because `AntiMEVClient.runSingle` only partially maps the MVP fields, and the Pro Volume Bot sell behavior is unconfirmed.
 - Launch + Volume remains blocked until Volume Bot mapping and sequencing semantics are confirmed.
 
-The backend route still returns mock execution only. Live Smithii execution remains blocked outside the browser handoff boundary.
+The backend route still returns mock execution only. Browser-handoff-ready means a known SDK target has been identified; live Smithii execution remains blocked until Smithii provides the browser-side handoff module or equivalent zero-custody execution contract.

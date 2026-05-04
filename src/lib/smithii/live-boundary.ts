@@ -21,6 +21,9 @@ const BROWSER_TX_ASSEMBLY_QUESTION =
 const VOLUME_MAPPING_QUESTION =
   "Where do Volume Bot onPurchase, sellTiming, sellMode, and sellStrategy map in SDK v0.2.0?";
 
+const BUNDLE_LAUNCH_BROWSER_SIGNER_MATERIAL = "bundle buyer signer material";
+const BUNDLE_SWAP_BROWSER_SIGNER_MATERIAL = "bundle swap wallet signer material";
+
 export function liveBoundaryForPreview(
   preview: ActivePreview,
 ): SmithiiLiveBoundary {
@@ -30,7 +33,7 @@ export function liveBoundaryForPreview(
       serverExecution: "blocked",
       sdkPackage: "@smithii/sdk",
       sdkMethod: "PumpFunClient.createAndSnipeToken",
-      browserRequiredSignerArgs: ["buyers[].pk"],
+      browserRequiredSignerArgs: [BUNDLE_LAUNCH_BROWSER_SIGNER_MATERIAL],
       blockers: [],
       questionsForSmithii: [BROWSER_TX_ASSEMBLY_QUESTION],
     };
@@ -48,7 +51,7 @@ export function liveBoundaryForPreview(
       serverExecution: "blocked",
       sdkPackage: "@smithii/sdk",
       sdkMethod: "PumpFunClient.bundleSellBuy",
-      browserRequiredSignerArgs: ["privKeys[]"],
+      browserRequiredSignerArgs: [BUNDLE_SWAP_BROWSER_SIGNER_MATERIAL],
       blockers: tokenToTokenBlockers,
       questionsForSmithii: tokenToTokenBlockers.length
         ? [
@@ -68,7 +71,7 @@ export function liveBoundaryForPreview(
     serverExecution: "blocked",
     sdkPackage: "@smithii/sdk",
     sdkMethod: "Composite: Bundle Launch + Volume Bot",
-    browserRequiredSignerArgs: ["buyers[].pk"],
+    browserRequiredSignerArgs: [BUNDLE_LAUNCH_BROWSER_SIGNER_MATERIAL],
     blockers: [
       "Launch + Volume sequence cannot be live until Volume Bot live mapping is confirmed.",
     ],
@@ -137,10 +140,10 @@ function mockSdkMethodForTool(tool: PendingPlan["tool"]) {
 
 function browserSignerArgsForTool(tool: PendingPlan["tool"]) {
   if (tool === "bundle_launch" || tool === "launch_volume_sequence") {
-    return ["buyers[].pk"];
+    return [BUNDLE_LAUNCH_BROWSER_SIGNER_MATERIAL];
   }
   if (tool === "bundle_swap") {
-    return ["privKeys[]"];
+    return [BUNDLE_SWAP_BROWSER_SIGNER_MATERIAL];
   }
 
   return [];

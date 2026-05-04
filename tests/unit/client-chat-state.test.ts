@@ -4,6 +4,7 @@ import {
   chatErrorStateForResponse,
   inputForLastConfig,
   nextActivePreview,
+  nextPreviewLiveState,
 } from "../../src/lib/agent/client-chat-state";
 import type { ActivePreview, MockChatResult } from "../../src/lib/agent/mock-chat";
 
@@ -65,6 +66,58 @@ describe("client chat state transitions", () => {
     expect(nextActivePreview(result, previousPreview)).toBeNull();
   });
 
+  it("keeps retained previews paired with their previous Smithii live state", () => {
+    const previousPreview = bundleLaunchPreview();
+    const previousLive = smithiiBoundary("browser-handoff-ready");
+
+    const result: MockChatResult = {
+      assistantMessage: {
+        role: "assistant",
+        text: "I can prepare a Bundle Launch, Bundle Swap, or Volume Bot preview.",
+      },
+      pendingPlan: null,
+      activePreview: null,
+      executionStatus: "Waiting for preview",
+      draft: null,
+    };
+
+    expect(
+      nextPreviewLiveState(result, {
+        activePreview: previousPreview,
+        smithiiLive: previousLive,
+      }),
+    ).toEqual({
+      activePreview: previousPreview,
+      smithiiLive: previousLive,
+    });
+  });
+
+  it("clears Smithii live state when the preview is cleared", () => {
+    const previousPreview = bundleLaunchPreview();
+    const previousLive = smithiiBoundary("browser-handoff-ready");
+
+    const result: MockChatResult = {
+      assistantMessage: {
+        role: "assistant",
+        text: "Mock Bundle Launch executed.",
+      },
+      pendingPlan: null,
+      activePreview: null,
+      executionStatus: "Mint11111111... returned",
+      draft: null,
+    };
+
+    expect(
+      nextPreviewLiveState(result, {
+        activePreview: previousPreview,
+        smithiiLive: previousLive,
+      }),
+    ).toEqual({
+      activePreview: null,
+      smithiiLive: null,
+    });
+  });
+
   it("builds a reusable input from the saved launch to volume config", () => {
     expect(
       inputForLastConfig({
@@ -102,5 +155,17 @@ function bundleLaunchPreview(): ActivePreview {
       slippagePct: 10,
     },
     summary: "Bundle launch for LEAK with 1 bundle wallets.",
+  };
+}
+
+function smithiiBoundary(mode: "mock" | "browser-handoff-ready" | "blocked-awaiting-smithii") {
+  return {
+    mode,
+    serverExecution: "blocked" as const,
+    sdkPackage: "@smithii/sdk" as const,
+    sdkMethod: "PumpFunClient.createAndSnipeToken",
+    browserRequiredSignerArgs: ["bundle buyer signer material"],
+    blockers: [],
+    questionsForSmithii: [],
   };
 }

@@ -15,10 +15,13 @@ import { randomUUID } from "node:crypto";
 import type { MockChatResult, PendingPlan } from "@/lib/agent/mock-chat";
 import type { AuditLogRecord } from "@/lib/audit-log-types";
 
+const AUDIT_LOG_FILE_NAME = process.env.VITEST_POOL_ID
+  ? `audit-log-${process.env.VITEST_POOL_ID}.json`
+  : "audit-log.json";
 const AUDIT_LOG_PATH = path.join(
   process.cwd(),
   ".smithii-local",
-  "audit-log.json",
+  AUDIT_LOG_FILE_NAME,
 );
 const AUDIT_LOG_LOCK_PATH = `${AUDIT_LOG_PATH}.lock`;
 

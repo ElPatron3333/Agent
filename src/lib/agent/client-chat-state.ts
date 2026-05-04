@@ -1,5 +1,6 @@
 import type { ActivePreview, MockChatResult } from "@/lib/agent/mock-chat";
 import type { LastConfigSnapshot } from "@/lib/agent/last-config-memory";
+import type { SmithiiLiveBoundary } from "@/lib/smithii/live-boundary";
 
 const GENERIC_CHAT_ERROR =
   "The mock chat route failed. Check the dev logs and try again.";
@@ -10,6 +11,28 @@ export type ChatErrorState = {
   clearActivePreview: boolean;
   executionStatus?: string;
 };
+
+export type PreviewLiveState = {
+  activePreview: ActivePreview | null;
+  smithiiLive: SmithiiLiveBoundary | null;
+};
+
+export function nextPreviewLiveState(
+  result: MockChatResult,
+  current: PreviewLiveState,
+): PreviewLiveState {
+  const activePreview = nextActivePreview(result, current.activePreview);
+
+  if (result.smithiiLive) {
+    return { activePreview, smithiiLive: result.smithiiLive };
+  }
+
+  if (activePreview && activePreview === current.activePreview) {
+    return { activePreview, smithiiLive: current.smithiiLive };
+  }
+
+  return { activePreview, smithiiLive: null };
+}
 
 export function nextActivePreview(
   result: MockChatResult,

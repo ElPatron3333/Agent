@@ -20,8 +20,9 @@ describe("Smithii Phase 8A live boundary", () => {
     expect(boundary.mode).toBe("browser-handoff-ready");
     expect(boundary.serverExecution).toBe("blocked");
     expect(boundary.sdkMethod).toBe("PumpFunClient.createAndSnipeToken");
-    expect(boundary.browserRequiredSignerArgs).toContain("buyers[].pk");
+    expect(boundary.browserRequiredSignerArgs).toContain("bundle buyer signer material");
     expect(boundary.blockers).toEqual([]);
+    expect(JSON.stringify(boundary)).not.toMatch(/buyers\[\]\.pk|privKeys\[\]/);
   });
 
   it("marks SOL/token bundle swaps as browser handoff ready", () => {
@@ -29,8 +30,9 @@ describe("Smithii Phase 8A live boundary", () => {
 
     expect(boundary.mode).toBe("browser-handoff-ready");
     expect(boundary.sdkMethod).toBe("PumpFunClient.bundleSellBuy");
-    expect(boundary.browserRequiredSignerArgs).toContain("privKeys[]");
+    expect(boundary.browserRequiredSignerArgs).toContain("bundle swap wallet signer material");
     expect(boundary.blockers).toEqual([]);
+    expect(JSON.stringify(boundary)).not.toMatch(/buyers\[\]\.pk|privKeys\[\]/);
   });
 
   it("blocks token-to-token bundle swap live handoff", () => {

@@ -7,10 +7,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { POST } from "../../src/app/api/chat/route";
 import { resetExecuteAttemptRateLimiter } from "../../src/lib/rate-limit";
 
+const AUDIT_LOG_FILE_NAME = process.env.VITEST_POOL_ID
+  ? `audit-log-${process.env.VITEST_POOL_ID}.json`
+  : "audit-log.json";
 const AUDIT_LOG_PATH = path.join(
   process.cwd(),
   ".smithii-local",
-  "audit-log.json",
+  AUDIT_LOG_FILE_NAME,
 );
 const PLAN_RECORDS_DIR = path.join(process.cwd(), ".smithii-local", "plan-records");
 
@@ -27,6 +30,34 @@ function jsonRequest(body: unknown, cookie?: string) {
 
 async function responseJson(response: Response) {
   return (await response.json()) as Record<string, unknown>;
+}
+const PRIVATE_KEY_ALIAS_FIELD_NAMES = new Set([
+  "pk",
+  "privatekey",
+  "privatekeys",
+  "private_key",
+  "privkeys",
+  "secretkey",
+  "seedphrase",
+]);
+
+function expectNoPrivateKeyAliasFields(value: unknown) {
+  expect(privateKeyAliasFieldsIn(value)).toEqual([]);
+}
+
+function privateKeyAliasFieldsIn(value: unknown): string[] {
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap(privateKeyAliasFieldsIn);
+  }
+
+  return Object.entries(value).flatMap(([key, nested]) => [
+    ...(PRIVATE_KEY_ALIAS_FIELD_NAMES.has(key.toLowerCase()) ? [key] : []),
+    ...privateKeyAliasFieldsIn(nested),
+  ]);
 }
 
 describe("/api/chat route", () => {
@@ -145,6 +176,12 @@ describe("/api/chat route", () => {
 
     expect(previewResponse.status).toBe(200);
     expect(JSON.stringify(preview)).not.toContain("privateKey");
+    expectNoPrivateKeyAliasFields(preview);
+    expect(preview.smithiiLive).toMatchObject({
+      mode: "browser-handoff-ready",
+      serverExecution: "blocked",
+      browserRequiredSignerArgs: ["bundle buyer signer material"],
+    });
     expect(pendingPlan).toMatchObject({
       id: "plan_bundle_launch_1_0_10",
       tool: "bundle_launch",
@@ -432,6 +469,12 @@ describe("/api/chat route", () => {
     expect(preview.pendingPlan).toMatchObject({
       tool: "bundle_swap",
     });
+    expectNoPrivateKeyAliasFields(preview);
+    expect(preview.smithiiLive).toMatchObject({
+      mode: "browser-handoff-ready",
+      serverExecution: "blocked",
+      browserRequiredSignerArgs: ["bundle swap wallet signer material"],
+    });
     expect(preview.activePreview).toMatchObject({
       kind: "bundle_swap",
       routing: "pumpswap_amm",
@@ -450,6 +493,13 @@ describe("/api/chat route", () => {
     );
 
     expect(confirmResponse.status).toBe(200);
+    const confirm = await responseJson(confirmResponse);
+    expectNoPrivateKeyAliasFields(confirm);
+    expect(confirm.smithiiLive).toMatchObject({
+      mode: "mock",
+      serverExecution: "blocked",
+      browserRequiredSignerArgs: ["bundle swap wallet signer material"],
+    });
     expect(auditRecordsForSession(sessionId)).toMatchObject([
       {
         event: "preview_prepared",
@@ -462,6 +512,47 @@ describe("/api/chat route", () => {
         outcome: "Mock swap signature returned",
       },
     ]);
+  });
+
+  it("serializes token-to-token bundle swaps as blocked for live handoff", async () => {
+    const previewResponse = await POST(
+      jsonRequest({
+        message: "skip",
+        draft: {
+          tool: "bundle_swap",
+          data: {
+            direction: "token_to_token",
+            fromToken: "SourceMint111",
+            toToken: "TargetMint222",
+            walletCount: 1,
+            quantityMode: { type: "random_pct", minPct: 25, maxPct: 50 },
+            txCount: 1,
+            txDelayBlocks: 1,
+          },
+        },
+        swapWalletSelection: {
+          participatingWallets: [
+            { pubkey: "wallet111", solBalance: 1, tokenBalance: 10 },
+          ],
+        },
+      }),
+    );
+    const preview = await responseJson(previewResponse);
+
+    expect(previewResponse.status).toBe(200);
+    expectNoPrivateKeyAliasFields(preview);
+    expect(preview.activePreview).toMatchObject({
+      kind: "bundle_swap",
+      direction: "token_to_token",
+    });
+    expect(preview.smithiiLive).toMatchObject({
+      mode: "blocked-awaiting-smithii",
+      serverExecution: "blocked",
+      browserRequiredSignerArgs: ["bundle swap wallet signer material"],
+      blockers: [
+        "@smithii/sdk/pump bundleSellBuy does not expose token-to-token swaps.",
+      ],
+    });
   });
 
   it("rejects complete bundle swap drafts without a public wallet selection", async () => {
@@ -550,6 +641,12 @@ describe("/api/chat route", () => {
       makers: 200,
       sellMode: "sell_strategy",
     });
+    expectNoPrivateKeyAliasFields(preview);
+    expect(preview.smithiiLive).toMatchObject({
+      mode: "blocked-awaiting-smithii",
+      serverExecution: "blocked",
+      browserRequiredSignerArgs: [],
+    });
 
     const confirmResponse = await POST(
       jsonRequest(
@@ -562,8 +659,15 @@ describe("/api/chat route", () => {
     );
 
     expect(confirmResponse.status).toBe(200);
-    expect(await responseJson(confirmResponse)).toMatchObject({
+    const confirm = await responseJson(confirmResponse);
+    expectNoPrivateKeyAliasFields(confirm);
+    expect(confirm).toMatchObject({
       executionStatus: "Volume bot started",
+      smithiiLive: {
+        mode: "mock",
+        serverExecution: "blocked",
+        browserRequiredSignerArgs: [],
+      },
       volumeBotRun: {
         runId: `run_${(preview.pendingPlan as { id: string }).id}`,
         state: "running",
@@ -708,9 +812,16 @@ describe("/api/chat route", () => {
     );
 
     expect(confirmResponse.status).toBe(200);
-    expect(JSON.stringify(await responseJson(confirmResponse))).toContain(
+    const confirm = await responseJson(confirmResponse);
+    expectNoPrivateKeyAliasFields(confirm);
+    expect(JSON.stringify(confirm)).toContain(
       "Mock Bundle Launch executed",
     );
+    expect(confirm.smithiiLive).toMatchObject({
+      mode: "mock",
+      serverExecution: "blocked",
+      browserRequiredSignerArgs: ["bundle buyer signer material"],
+    });
   });
 
   it("executes a volume bot with start and rejects replay", async () => {
@@ -781,8 +892,14 @@ describe("/api/chat route", () => {
     const cookie = cookieHeaderFrom(previewResponse);
 
     expect(previewResponse.status).toBe(200);
+    expectNoPrivateKeyAliasFields(preview);
     expect(preview.pendingPlan).toMatchObject({
       tool: "launch_volume_sequence",
+    });
+    expect(preview.smithiiLive).toMatchObject({
+      mode: "blocked-awaiting-smithii",
+      serverExecution: "blocked",
+      browserRequiredSignerArgs: ["bundle buyer signer material"],
     });
 
     const confirmResponse = await POST(
@@ -796,8 +913,15 @@ describe("/api/chat route", () => {
     );
 
     expect(confirmResponse.status).toBe(200);
-    expect(await responseJson(confirmResponse)).toMatchObject({
+    const confirm = await responseJson(confirmResponse);
+    expectNoPrivateKeyAliasFields(confirm);
+    expect(confirm).toMatchObject({
       executionStatus: "Launch + Volume sequence queued",
+      smithiiLive: {
+        mode: "mock",
+        serverExecution: "blocked",
+        browserRequiredSignerArgs: ["bundle buyer signer material"],
+      },
     });
 
     const replayResponse = await POST(

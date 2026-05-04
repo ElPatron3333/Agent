@@ -546,7 +546,7 @@ describe("mock chat agent", () => {
     expect(result.smithiiLive?.mode).toBe("browser-handoff-ready");
     expect(result.smithiiLive?.serverExecution).toBe("blocked");
     expect(result.smithiiLive?.browserRequiredSignerArgs).toContain(
-      "buyers[].pk",
+      "bundle buyer signer material",
     );
   });
 

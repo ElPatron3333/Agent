@@ -9,10 +9,10 @@ Status: implemented as a typed boundary; live execution remains disabled.
 Phase 8A starts the Smithii library wire-up without crossing the zero-custody line. The app can now classify each prepared preview as one of these states:
 
 - `mock`: the current confirmed execution path; no live Smithii call is made.
-- `browser-handoff-ready`: the preview has a known Smithii SDK target, but execution must happen in the browser with user-held signer material.
+- `browser-handoff-ready`: the preview has a known Smithii SDK target, but execution must happen in the browser with user-held signer material after Smithii provides the required browser-side handoff module or equivalent.
 - `blocked-awaiting-smithii`: the preview cannot be live-wired until Smithii answers an integration question or exposes a missing capability.
 
-The backend still cannot receive wallet key material, cannot run live Smithii execution, and cannot add server-side private-key schemas.
+The backend still cannot receive wallet key material, cannot run live Smithii execution, and cannot add server-side private-key schemas. In Phase 8A, browser-handoff-ready means "known SDK target," not "ready for production live execution."
 
 ## Current Flow Status
 
@@ -29,7 +29,7 @@ The backend still cannot receive wallet key material, cannot run live Smithii ex
 
 `src/lib/smithii/live-boundary.ts` exposes `requireServerLiveExecutionBlocked()`, which always throws. This is intentional. It gives future code a hard boundary: live Smithii calls must not be added to the Next.js route handler while the architecture remains zero-custody.
 
-The `/api/chat` response can include safe live-boundary metadata, but it must not include key values or private-key-shaped field names. Existing route tests assert that private-key strings do not appear in responses.
+The `/api/chat` response can include safe live-boundary metadata, but it must not include key values or private-key-shaped field names. Public response metadata uses neutral signer-material labels instead of exact SDK private-key argument names. Route tests assert that private-key strings and aliases such as `pk`, `privKeys`, `privateKeys`, `private_key`, `secretKey`, and `seedPhrase` do not appear as response field names.
 
 ## What Changed
 
