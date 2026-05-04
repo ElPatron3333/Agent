@@ -11,6 +11,11 @@ import {
 } from "@/lib/smithii/mock";
 import { DEFAULT_GLOBAL_SETTINGS } from "@/lib/global-settings";
 import { templateForMessage } from "@/lib/smithii/templates";
+import {
+  liveBoundaryForPreview,
+  mockLiveBoundaryForTool,
+  type SmithiiLiveBoundary,
+} from "@/lib/smithii/live-boundary";
 import { VOLUME_BOT_SELL_STRATEGY_LEG_LIMIT } from "@/lib/smithii/types";
 import type {
   BundleSwapInput,
@@ -219,12 +224,17 @@ export type MockChatResult = {
   activePreview: ActivePreview | null;
   executionStatus: string;
   draft: Draft | null;
+  smithiiLive?: SmithiiLiveBoundary;
   volumeBotRun?: VolumeBotRun;
 };
 
 const PLAN_TTL_MS = 5 * 60 * 1000;
 
-export function handleMockChat({
+export function handleMockChat(input: MockChatInput): MockChatResult {
+  return withSmithiiLiveBoundary(handleMockChatCore(input));
+}
+
+function handleMockChatCore({
   message,
   now = Date.now(),
   pendingPlan = null,
@@ -335,6 +345,17 @@ export function handleMockChat({
   };
 }
 
+function withSmithiiLiveBoundary(result: MockChatResult): MockChatResult {
+  if (!result.activePreview || result.smithiiLive) {
+    return result;
+  }
+
+  return {
+    ...result,
+    smithiiLive: liveBoundaryForPreview(result.activePreview),
+  };
+}
+
 function executePendingPlan({
   pendingPlan,
   now,
@@ -380,6 +401,7 @@ function executePendingPlan({
       activePreview: null,
       executionStatus: `${execution.mintAddress.slice(0, 12)}... returned`,
       draft: null,
+      smithiiLive: mockLiveBoundaryForTool(pendingPlan.tool),
     };
   }
 
@@ -395,6 +417,7 @@ function executePendingPlan({
       activePreview: null,
       executionStatus: "Mock swap signature returned",
       draft: null,
+      smithiiLive: mockLiveBoundaryForTool(pendingPlan.tool),
     };
   }
 
@@ -410,6 +433,7 @@ function executePendingPlan({
       activePreview: null,
       executionStatus: "Launch + Volume sequence queued",
       draft: null,
+      smithiiLive: mockLiveBoundaryForTool(pendingPlan.tool),
     };
   }
 
@@ -438,6 +462,7 @@ function executePendingPlan({
     activePreview: null,
     executionStatus: `Volume bot ${execution.status}`,
     draft: null,
+    smithiiLive: mockLiveBoundaryForTool(pendingPlan.tool),
     volumeBotRun: {
       ...execution,
       ...status,

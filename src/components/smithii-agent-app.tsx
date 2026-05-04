@@ -22,6 +22,7 @@ import {
   nextActivePreview,
 } from "@/lib/agent/client-chat-state";
 import type { AuditLogRecord } from "@/lib/audit-log-types";
+import type { SmithiiLiveBoundary } from "@/lib/smithii/live-boundary";
 import type { GlobalSettings } from "@/lib/smithii/types";
 import { pauseVolumeBot } from "@/lib/smithii/mock";
 import { launchVolumeTemplates } from "@/lib/smithii/templates";
@@ -94,6 +95,7 @@ export function SmithiiAgentApp() {
   const [activePreview, setActivePreview] =
     useState<ActivePreview | null>(defaultPreview);
   const [executionStatus, setExecutionStatus] = useState("Waiting for preview");
+  const [smithiiLive, setSmithiiLive] = useState<SmithiiLiveBoundary | null>(null);
   const [volumeBotRun, setVolumeBotRun] = useState<VolumeBotRun | null>(null);
   const [lastSequenceConfig, setLastSequenceConfig] = useState<LastConfigSnapshot | null>(
     getInitialLastSequenceConfig,
@@ -184,6 +186,7 @@ export function SmithiiAgentApp() {
         }
         if (errorState.clearActivePreview) {
           setActivePreview(null);
+          setSmithiiLive(null);
         }
         if (errorState.executionStatus) {
           setExecutionStatus(errorState.executionStatus);
@@ -198,6 +201,7 @@ export function SmithiiAgentApp() {
       setActivePreview((current) => nextActivePreview(result, current));
       rememberLastConfig(result.activePreview);
       setExecutionStatus(result.executionStatus);
+      setSmithiiLive(result.smithiiLive ?? null);
       setVolumeBotRun(result.volumeBotRun ?? null);
       void refreshAuditLog();
     } catch (error) {
@@ -295,7 +299,7 @@ export function SmithiiAgentApp() {
                 label="Wallets"
                 value={`${walletRoster.length} loaded`}
               />
-              <PreviewRow label="Mode" value="Mock" />
+              <PreviewRow label="Mode" value={liveModeLabel(smithiiLive)} />
             </div>
           </section>
 
@@ -388,9 +392,16 @@ export function SmithiiAgentApp() {
                     value={pendingPlan ? "5 minutes" : "No plan"}
                   />
                   <PreviewRow label="Execute words" value="confirm, launch, start" />
+                  <PreviewRow
+                    label="Smithii live"
+                    value={liveModeLabel(smithiiLive)}
+                  />
+                  <PreviewRow
+                    label="Server execution"
+                    value={smithiiLive?.serverExecution ?? "Mock only"}
+                  />
                   <p className="mt-4 rounded-md border border-cyan-950/80 p-3 text-sm leading-6 text-slate-300">
-                    Mock execution only happens after a preview is prepared and a
-                    confirm word is sent through chat.
+                    {liveBoundaryText(smithiiLive)}
                   </p>
                 </Panel>
               </div>
@@ -1081,6 +1092,28 @@ function PreviewRow({ label, value }: { label: string; value: string }) {
       </span>
     </div>
   );
+}
+
+function liveModeLabel(boundary: SmithiiLiveBoundary | null) {
+  if (!boundary || boundary.mode === "mock") {
+    return "Mock";
+  }
+  if (boundary.mode === "browser-handoff-ready") {
+    return "Browser handoff ready";
+  }
+
+  return "Blocked awaiting Smithii";
+}
+
+function liveBoundaryText(boundary: SmithiiLiveBoundary | null) {
+  if (!boundary || boundary.mode === "mock") {
+    return "Mock execution only happens after a preview is prepared and a confirm word is sent through chat.";
+  }
+  if (boundary.mode === "browser-handoff-ready") {
+    return "Smithii handoff is typed for browser-only execution. Backend live execution remains blocked.";
+  }
+
+  return boundary.blockers[0] ?? "Smithii live execution is blocked until the integration contract is confirmed.";
 }
 
 function activePreviewId(preview: ActivePreview | null) {

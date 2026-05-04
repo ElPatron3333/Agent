@@ -77,3 +77,19 @@ Do not wire live Smithii execution yet. The next live integration step needs Smi
 3. Whether Smithii has a zero-custody multi-wallet Volume Bot flow, or whether runMultiple is intentionally backend-keyed.
 
 Until that is answered, the correct integration state is a thin typed adapter plus mock-first previews and explicit confirmation gates.
+
+## Phase 8A Live Boundary Update
+
+Date: 2026-05-05
+
+The repo now has a typed Phase 8A boundary in `src/lib/smithii/live-boundary.ts`. It does not execute live Smithii calls. It only classifies previews as mock, browser-handoff-ready, or blocked-awaiting-Smithii.
+
+Current classification:
+
+- Bundle Launch is browser-handoff-ready through `PumpFunClient.createAndSnipeToken`, but only from browser-held signer material.
+- Bundle Swap SOL/token and token/SOL are browser-handoff-ready through `PumpFunClient.bundleSellBuy`, but only from browser-held signer material.
+- Bundle Swap token-to-token remains blocked because the checked SDK method does not expose token-to-token swaps.
+- Volume Bot remains blocked because `AntiMEVClient.runSingle` only partially maps the MVP fields, and the Pro Volume Bot sell behavior is unconfirmed.
+- Launch + Volume remains blocked until Volume Bot mapping and sequencing semantics are confirmed.
+
+The backend route still returns mock execution only. Live Smithii execution remains blocked outside the browser handoff boundary.

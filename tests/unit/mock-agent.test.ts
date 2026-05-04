@@ -521,6 +521,65 @@ describe("mock chat agent", () => {
     });
   });
 
+  it("attaches browser handoff readiness to supported live previews", () => {
+    const result = handleMockChat({
+      message: "yes",
+      now,
+      draft: {
+        tool: "bundle_launch",
+        data: {
+          tokenName: "Blue Frog",
+          symbol: "BFROG",
+          description: "A blue frog community token.",
+          walletCount: 2,
+          solPerWallet: 0.25,
+          imageFileName: "blue-frog.png",
+          socialsEnabled: false,
+          cashbackCoin: false,
+          useDifferentBlocks: true,
+          pregenerateTokenAddress: false,
+        },
+      },
+    });
+
+    expect(result.activePreview?.kind).toBe("bundle_launch");
+    expect(result.smithiiLive?.mode).toBe("browser-handoff-ready");
+    expect(result.smithiiLive?.serverExecution).toBe("blocked");
+    expect(result.smithiiLive?.browserRequiredSignerArgs).toContain(
+      "buyers[].pk",
+    );
+  });
+
+  it("attaches Smithii blockers to unsupported token-to-token live previews", () => {
+    const result = handleMockChat({
+      message: "skip",
+      now,
+      draft: {
+        tool: "bundle_swap",
+        data: {
+          direction: "token_to_token",
+          fromToken: "SourceMint111",
+          toToken: "MigratedMint111",
+          walletCount: 2,
+          quantityMode: { type: "random_pct", minPct: 25, maxPct: 50 },
+          txCount: 2,
+          txDelayBlocks: 1,
+        },
+      },
+      swapWalletSelection: {
+        participatingWallets: [
+          { pubkey: "wallet111", solBalance: 1, tokenBalance: 20 },
+          { pubkey: "wallet222", solBalance: 1, tokenBalance: 0 },
+        ],
+      },
+    });
+
+    expect(result.activePreview?.kind).toBe("bundle_swap");
+    expect(result.smithiiLive?.mode).toBe("blocked-awaiting-smithii");
+    expect(result.smithiiLive?.blockers).toContain(
+      "@smithii/sdk/pump bundleSellBuy does not expose token-to-token swaps.",
+    );
+  });
   it("collects bundle swap fields before preparing a roster-backed preview", () => {
     const started = handleMockChat({
       message: "prepare a bundle swap",
@@ -939,6 +998,22 @@ describe("mock chat agent", () => {
     });
   });
 
+  it("keeps confirmed executions on the mock boundary", () => {
+    const executed = handleMockChat({
+      message: "launch",
+      now: now + 60_000,
+      pendingPlan: {
+        id: "plan_bundle_launch_3_1_150",
+        tool: "bundle_launch",
+        createdAt: now,
+      },
+    });
+
+    expect(executed.assistantMessage.text).toContain("Mock Bundle Launch executed");
+    expect(executed.executionStatus).toContain("MockMint1111");
+    expect(executed.smithiiLive?.mode).toBe("mock");
+    expect(executed.smithiiLive?.serverExecution).toBe("blocked");
+  });
   it("rejects confirmation without an active plan", () => {
     const result = handleMockChat({
       message: "confirm",
