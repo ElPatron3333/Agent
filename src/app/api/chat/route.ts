@@ -34,6 +34,7 @@ import {
 } from "@/lib/audit-log";
 import { normalizeGlobalSettings } from "@/lib/global-settings";
 import { resolvePlanSigningSecret } from "@/lib/plan-signing-secret";
+import { consumeExecuteAttempt } from "@/lib/rate-limit";
 import { VOLUME_BOT_SELL_STRATEGY_LEG_LIMIT } from "@/lib/smithii/types";
 import type {
   LaunchWalletSelection,
@@ -99,6 +100,27 @@ export async function POST(request: Request) {
 
   const sessionId = getOrCreateSessionId(request);
   const pendingPlan = parseIncomingPendingPlan(body.pendingPlan, sessionId);
+
+  if (isConfirmMessage(body.message)) {
+    const executeAttempt = consumeExecuteAttempt({ key: sessionId });
+    if (!executeAttempt.allowed) {
+      appendAuditRecord(
+        auditRecordForRejectedPendingPlan({
+          pendingPlan: body.pendingPlan,
+          sessionId,
+          outcome: "Rate limited.",
+        }),
+      );
+      return NextResponse.json(
+        { error: "Too many execute attempts. Try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(executeAttempt.retryAfterSeconds) },
+        },
+      );
+    }
+  }
+
   if (pendingPlan === "invalid") {
     appendAuditRecord(
       auditRecordForRejectedPendingPlan({
@@ -205,7 +227,9 @@ export async function POST(request: Request) {
     }),
   );
 
-  const response = NextResponse.json(signPendingPlanInResult(result, sessionId));
+  const response = NextResponse.json(signPendingPlanInResult(result, sessionId), {
+    status: result.executionStatus === "Preview expired" ? 410 : 200,
+  });
   response.cookies.set(SESSION_COOKIE_NAME, sessionId, {
     httpOnly: true,
     sameSite: "lax",

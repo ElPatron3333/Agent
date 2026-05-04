@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { POST } from "../../src/app/api/chat/route";
+import { resetExecuteAttemptRateLimiter } from "../../src/lib/rate-limit";
 
 const AUDIT_LOG_PATH = path.join(
   process.cwd(),
@@ -28,6 +29,7 @@ async function responseJson(response: Response) {
 
 describe("/api/chat route", () => {
   afterEach(() => {
+    resetExecuteAttemptRateLimiter();
     vi.useRealTimers();
   });
 
@@ -850,7 +852,7 @@ describe("/api/chat route", () => {
       ),
     );
 
-    expect(expiredResponse.status).toBe(200);
+    expect(expiredResponse.status).toBe(410);
     expect(await responseJson(expiredResponse)).toMatchObject({
       executionStatus: "Preview expired",
       pendingPlan: null,
@@ -863,6 +865,83 @@ describe("/api/chat route", () => {
         outcome: "Preview expired",
       }),
     );
+  });
+
+  it("rate-limits execute confirmations per session", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-30T01:00:00.000Z"));
+
+    const cookie = `smithii_agent_session=rate-limit-${Date.now()}`;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const previewResponse = await POST(
+        jsonRequest(
+          {
+            message: "no",
+            draft: {
+              tool: "bundle_launch",
+              data: completeLaunchDraftData(),
+            },
+            launchWalletSelection: {
+              devWalletPubkey: "DevWallet...91nP",
+              bundleWallets: [
+                { pubkey: `BndlWallet...${attempt}`, buyAmountSol: 0.1 },
+              ],
+            },
+          },
+          cookie,
+        ),
+      );
+      const preview = await responseJson(previewResponse);
+
+      const confirmResponse = await POST(
+        jsonRequest(
+          {
+            message: "confirm",
+            pendingPlan: preview.pendingPlan,
+          },
+          cookie,
+        ),
+      );
+
+      expect(confirmResponse.status).toBe(200);
+    }
+
+    const previewResponse = await POST(
+      jsonRequest(
+        {
+          message: "no",
+          draft: {
+            tool: "bundle_launch",
+            data: completeLaunchDraftData(),
+          },
+          launchWalletSelection: {
+            devWalletPubkey: "DevWallet...91nP",
+            bundleWallets: [{ pubkey: "BndlWallet...6", buyAmountSol: 0.1 }],
+          },
+        },
+        cookie,
+      ),
+    );
+    const preview = await responseJson(previewResponse);
+
+    expect(previewResponse.status).toBe(200);
+    expect(preview.pendingPlan).toBeTruthy();
+
+    const limitedResponse = await POST(
+      jsonRequest(
+        {
+          message: "confirm",
+          pendingPlan: preview.pendingPlan,
+        },
+        cookie,
+      ),
+    );
+
+    expect(limitedResponse.status).toBe(429);
+    expect(await responseJson(limitedResponse)).toEqual({
+      error: "Too many execute attempts. Try again later.",
+    });
   });
 
   it("rejects pending plans with unknown tools", async () => {
