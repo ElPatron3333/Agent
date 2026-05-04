@@ -374,6 +374,11 @@ These don't block phases 1–7. They block phase 8.
 8. Failed-launch refund/recovery semantics (especially for the 0.10 SOL service fee).
 9. Wallet cap reconciliation: 20 (per partner confirmation) vs 25 (UI textarea) for Bundle Swap. Lock the value Smithii enforces backend-side.
 10. Edit-volume-bot endpoint — currently not supported per Smithii team. Would be an MVP+1 ask.
+11. Confirm whether `@smithii/sdk/anti-mev` `AntiMEVClient.runSingle` is the Smithii Pro Volume Bot surface or a separate Anti-MEV volume product.
+12. Confirm where Volume Bot fields map in SDK v0.2.0: `onPurchase`, `sellTiming`, `sellMode`, and `sellStrategy`.
+13. Confirm whether `AntiMEVSingleConfig.randomize` is only per-bundle direction randomization, and not amount/delay randomization.
+14. Confirm whether Smithii can provide a zero-custody multi-wallet Volume Bot flow; `AntiMEVClient.runMultiple` is blocked because it sends `privateKeys[]` to a backend.
+15. If Volume Bot is not fully exposed in SDK v0.2.0, confirm the SDK version, endpoint, or browser-side module we should wait for.
 
 ---
 
