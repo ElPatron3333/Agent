@@ -76,7 +76,7 @@ Do not wire live Smithii execution yet. The next live integration step needs Smi
 2. Where auto-sell, return-to-wallet, sell timing, and sell strategy map in SDK v0.2.0.
 3. Whether Smithii has a zero-custody multi-wallet Volume Bot flow, or whether runMultiple is intentionally backend-keyed.
 
-Until that is answered, the correct integration state is a thin typed adapter plus mock-first previews and explicit confirmation gates.
+Until that is answered, the correct integration state is a thin typed adapter plus mock-first previews and explicit confirmation gates. The canonical Phase 8B question packet is `docs/smithii-integration-questions.md`.
 
 ## Phase 8A Live Boundary Update
 

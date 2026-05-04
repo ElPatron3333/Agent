@@ -41,7 +41,7 @@ The `/api/chat` response can include safe live-boundary metadata, but it must no
 
 ## Questions For Smithii
 
-These are the questions that now block real Phase 8 execution:
+These are the questions that now block real Phase 8 execution. Phase 8B consolidates them into the sendable packet at `docs/smithii-integration-questions.md`:
 
 1. Can Smithii provide the browser-side transaction assembly module, or equivalent zero-custody handoff, for Bundle Launch, Bundle Swap, and Volume Bot?
 2. For Bundle Launch, what exact metadata upload and mint keypair flow should the browser use before calling `PumpFunClient.createAndSnipeToken`?

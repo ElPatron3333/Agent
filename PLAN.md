@@ -33,6 +33,7 @@ Smithii Agent is a conversational AI execution layer over Smithii's Pump.fun inf
 - Browser-side tx-assembly module (or its equivalent) — needed to wire `execute_*` calls
 - Confirmation of integration license terms (origin lock + server-side fee enforcement + license)
 - 20-vs-25 wallet cap reconciliation for Bundle Swap (partner confirmed 20; UI shows 25 — Smithii to formalize)
+- Phase 8B packet at `docs/smithii-integration-questions.md` - canonical list of Smithii answers required before live execution wiring
 
 ### Not blocking — can build now
 ~70% of the build proceeds without any Smithii dependency. See §6 for what's library-blocked vs free-to-build.
