@@ -40,6 +40,28 @@ For each item, please provide one of these response types:
 - `Not supported`: say whether the feature is not exposed yet, intentionally private, or out of scope.
 - `Needs meeting`: identify the specific missing decision so we can resolve it live.
 
+## PLAN.md Open-Item Coverage
+
+This packet explicitly covers the Smithii blockers listed in `PLAN.md` section 9:
+
+| PLAN item | Covered by |
+|---|---|
+| 1. Browser-side tx assembly | A1, C1, D1, D3, E1 |
+| 2. Integration license and fee enforcement | A2, A3, B4, G |
+| 3. Sandbox/devnet endpoint | F1 |
+| 4. Auth model | A2 |
+| 5. Async Volume Bot pattern | D5 |
+| 6. Volume Bot status endpoint shape | D5 |
+| 7. Idempotency keys | A4 |
+| 8. Failed-launch refund/recovery, including the 0.10 SOL service fee | B6 |
+| 9. Bundle Swap wallet cap | C6 |
+| 10. Edit Volume Bot endpoint | D6 |
+| 11. `AntiMEVClient.runSingle` product mapping | D1 |
+| 12. Volume Bot field mapping | D2 |
+| 13. `AntiMEVSingleConfig.randomize` semantics | D7 |
+| 14. Zero-custody multi-wallet Volume Bot | D3 |
+| 15. Missing Volume Bot SDK/module version | D1, D3 |
+
 ## A. Shared Browser Handoff Contract
 
 ### A1. Browser module entry point
@@ -131,6 +153,14 @@ Question: What exact success response should we expect after a live launch?
 Why we need it: The agent needs to display and audit verifiable outputs only.
 
 Expected answer: Mint address, transaction signature(s), token URL if available, per-wallet result format, fee proof fields, and final status semantics.
+
+### B6. Failed-launch refund and recovery
+
+Question: What happens to user funds and Smithii service fees when a Bundle Launch fails before completion, including the 0.10 SOL service fee?
+
+Why we need it: The agent must explain failed-launch recovery accurately before the user confirms a live launch, and must not imply that service fees are refunded, credited, or recoverable unless Smithii guarantees that behavior.
+
+Expected answer: Failure points, refund/no-refund rules, whether the 0.10 SOL service fee is charged or reversed, any credit/manual recovery process, proof fields, user actions required, and support escalation path.
 
 ## C. Bundle Swap
 
@@ -231,6 +261,14 @@ Question: Is editing a running Volume Bot supported for MVP fields, or should ed
 Why we need it: The current plan treats edit as unsupported unless Smithii exposes it.
 
 Expected answer: Supported edit fields if any, update endpoint, state restrictions, and whether edits need a new signature.
+
+### D7. AntiMEV randomize semantics
+
+Question: In `AntiMEVSingleConfig.randomize`, does `randomize` only randomize per-bundle buy/sell direction, or can it also randomize transaction amounts, delays, wallet selection, or other Volume Bot behavior?
+
+Why we need it: The agent must not map Smithii's `randomize` field to amount or delay randomization unless the live contract supports those semantics.
+
+Expected answer: Exact `randomize` behavior, affected fields, unsupported randomness modes, default behavior when omitted, and whether Pro Volume Bot exposes separate controls for amount, delay, or wallet randomization.
 
 ## E. Launch + Volume Sequence
 
