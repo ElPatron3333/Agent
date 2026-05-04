@@ -3,7 +3,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    exclude: ["**/.git/**", "**/.next/**", "**/.worktrees/**", "**/node_modules/**"],
+    exclude: ["**/.git/**", "**/.next/**", ".worktrees/**", "**/node_modules/**"],
   },
   resolve: {
     alias: {
