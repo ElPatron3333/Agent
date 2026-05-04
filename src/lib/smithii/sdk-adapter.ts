@@ -179,6 +179,12 @@ export function toPumpBundleSellBuyArgs({
       "Bundle Swap amount count must match participating wallet count.",
     );
   }
+  if (privateKeys.some((privateKey) => privateKey.trim().length === 0)) {
+    throw new Error("Bundle Swap private keys must be non-empty.");
+  }
+  if (amounts.some((amount) => !Number.isFinite(amount) || amount <= 0)) {
+    throw new Error("Bundle Swap amounts must be finite positive numbers.");
+  }
 
   const target = pumpSwapTargetForInput(input);
 
@@ -244,7 +250,6 @@ export function toAntiMevSinglePlan(
       antiMEVUses: input.makers,
       amount: amountConfigForRange(input.orderAmount),
       delay: delayConfigForRange(input.delaySeconds),
-      randomize: input.orderAmount.minSol !== input.orderAmount.maxSol,
     },
     coverage: "partial_pending_smithii_confirmation",
     disallowedAlternative: {

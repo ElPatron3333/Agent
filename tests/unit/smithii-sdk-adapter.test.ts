@@ -169,6 +169,32 @@ describe("Smithii SDK adapter spike", () => {
     ).toThrow("Bundle Swap private keys must stay in the browser");
   });
 
+  it("rejects empty bundle swap private keys and invalid amounts", () => {
+    const input = bundleSwapInput({
+      toToken: Keypair.generate().publicKey.toBase58(),
+    });
+
+    expect(() =>
+      toPumpBundleSellBuyArgs({
+        runtime: "browser",
+        input,
+        privateKeys: ["wallet-key-1", ""],
+        amounts: [0.1, 0.2],
+      }),
+    ).toThrow("Bundle Swap private keys must be non-empty.");
+
+    for (const invalidAmount of [0, -0.1, Number.NaN]) {
+      expect(() =>
+        toPumpBundleSellBuyArgs({
+          runtime: "browser",
+          input,
+          privateKeys: ["wallet-key-1", "wallet-key-2"],
+          amounts: [invalidAmount, 0.2],
+        }),
+      ).toThrow("Bundle Swap amounts must be finite positive numbers.");
+    }
+  });
+
   it("maps volume bot input to the signer-only Anti-MEV single flow", () => {
     const plan = toAntiMevSinglePlan(volumeBotInput(), "pump");
 
@@ -182,7 +208,6 @@ describe("Smithii SDK adapter spike", () => {
         antiMEVUses: 200,
         amount: { mode: "random", randomMin: 0.01, randomMax: 0.02 },
         delay: { mode: "random", randomMinDelay: 10, randomMaxDelay: 20 },
-        randomize: true,
       },
       disallowedAlternative: {
         method: "runMultiple",
@@ -190,6 +215,7 @@ describe("Smithii SDK adapter spike", () => {
       },
     });
     expect(plan.unresolvedFields).toContain("sellStrategy");
+    expect("randomize" in plan.config).toBe(false);
     expect(plan.questionsForSmithii).toHaveLength(3);
   });
 
