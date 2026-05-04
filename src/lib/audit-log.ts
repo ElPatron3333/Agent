@@ -1,9 +1,12 @@
 import {
   appendFileSync,
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   renameSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -17,6 +20,7 @@ const AUDIT_LOG_PATH = path.join(
   ".smithii-local",
   "audit-log.json",
 );
+const AUDIT_LOG_LOCK_PATH = `${AUDIT_LOG_PATH}.lock`;
 
 export function auditRecordForResult({
   result,
@@ -85,12 +89,28 @@ export function auditRecordForRejectedPendingPlan({
   };
 }
 
+export function auditRecordForRejectedPrivateKey({
+  sessionId,
+}: {
+  sessionId: string;
+}): AuditLogRecord {
+  return {
+    id: randomUUID(),
+    createdAt: new Date().toISOString(),
+    sessionId,
+    event: "private_key_rejected",
+    outcome: "Invalid request.",
+  };
+}
+
 export function appendAuditRecord(record: AuditLogRecord | null) {
   if (!record) {
     return;
   }
 
-  ensureWritableAuditLog();
+  if (!ensureWritableAuditLog()) {
+    return;
+  }
   mkdirSync(path.dirname(AUDIT_LOG_PATH), { recursive: true });
   appendFileSync(AUDIT_LOG_PATH, `${JSON.stringify(record)}\n`);
 }
@@ -114,21 +134,50 @@ function isExecutionOutcome(executionStatus: string) {
 
 function ensureWritableAuditLog() {
   if (!existsSync(AUDIT_LOG_PATH)) {
-    return;
+    return true;
   }
 
   const content = readFileSync(AUDIT_LOG_PATH, "utf8");
   const records = parseAuditLogFile(content);
   if (records === null) {
     quarantineFile(AUDIT_LOG_PATH);
-    return;
+    return true;
   }
 
   if (content.trim().startsWith("[")) {
+    return convertLegacyAuditLog(records);
+  }
+
+  return true;
+}
+
+function convertLegacyAuditLog(records: AuditLogRecord[]) {
+  mkdirSync(path.dirname(AUDIT_LOG_LOCK_PATH), { recursive: true });
+
+  let lockHandle: number;
+  try {
+    lockHandle = openSync(AUDIT_LOG_LOCK_PATH, "wx");
+  } catch {
+    return false;
+  }
+
+  try {
+    const currentContent = readFileSync(AUDIT_LOG_PATH, "utf8");
+    if (!currentContent.trim().startsWith("[")) {
+      return true;
+    }
+
     writeFileSync(
       AUDIT_LOG_PATH,
       records.map((record) => JSON.stringify(record)).join("\n") + "\n",
     );
+    return true;
+  } finally {
+    closeSync(lockHandle);
+    try {
+      unlinkSync(AUDIT_LOG_LOCK_PATH);
+    } catch {
+    }
   }
 }
 
@@ -141,7 +190,7 @@ function parseAuditLogFile(content: string): AuditLogRecord[] | null {
   if (trimmed.startsWith("[")) {
     try {
       const parsed = JSON.parse(trimmed);
-      return isAuditRecordArray(parsed) ? parsed : null;
+      return isAuditRecordArray(parsed) ? parsed.map(sanitizeAuditRecord) : null;
     } catch {
       return null;
     }
@@ -152,15 +201,27 @@ function parseAuditLogFile(content: string): AuditLogRecord[] | null {
     try {
       const parsed = JSON.parse(line);
       if (!isAuditRecord(parsed)) {
-        return null;
+        continue;
       }
-      records.push(parsed);
+      records.push(sanitizeAuditRecord(parsed));
     } catch {
-      return null;
+      continue;
     }
   }
 
   return records;
+}
+
+function sanitizeAuditRecord(record: AuditLogRecord): AuditLogRecord {
+  return {
+    id: record.id,
+    createdAt: record.createdAt,
+    sessionId: record.sessionId,
+    event: record.event,
+    ...(record.tool ? { tool: record.tool } : {}),
+    ...(record.planId ? { planId: record.planId } : {}),
+    outcome: record.outcome,
+  };
 }
 
 function safePendingPlanFields(
@@ -198,7 +259,8 @@ function isAuditEvent(value: unknown) {
     value === "preview_prepared" ||
     value === "mock_executed" ||
     value === "confirmation_rejected" ||
-    value === "confirmation_expired"
+    value === "confirmation_expired" ||
+    value === "private_key_rejected"
   );
 }
 

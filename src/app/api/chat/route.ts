@@ -7,6 +7,7 @@ import {
 import {
   closeSync,
   existsSync,
+  statSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -29,6 +30,7 @@ import {
 } from "@/lib/agent/mock-chat";
 import {
   appendAuditRecord,
+  auditRecordForRejectedPrivateKey,
   auditRecordForRejectedPendingPlan,
   auditRecordForResult,
 } from "@/lib/audit-log";
@@ -60,6 +62,15 @@ const PENDING_PLAN_TOOLS = new Set([
   "volume_bot",
   "launch_volume_sequence",
 ]);
+const PRIVATE_KEY_FIELD_NAMES = new Set([
+  "pk",
+  "privatekey",
+  "privatekeys",
+  "private_key",
+  "privkeys",
+  "secretkey",
+  "seedphrase",
+]);
 
 type PlanRecord = {
   pendingPlan: PendingPlan;
@@ -72,6 +83,7 @@ const LEGACY_PLAN_RECORDS_PATH = path.join(
   "plan-records.json",
 );
 const PLAN_RECORDS_DIR = path.join(process.cwd(), ".smithii-local", "plan-records");
+const STALE_PLAN_LOCK_MS = 5 * 60 * 1000;
 
 export async function POST(request: Request) {
   let parsedBody: unknown;
@@ -85,7 +97,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
+  const sessionId = getOrCreateSessionId(request);
+
   if (containsPrivateKeyField(parsedBody)) {
+    appendAuditRecord(auditRecordForRejectedPrivateKey({ sessionId }));
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
@@ -98,28 +113,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const sessionId = getOrCreateSessionId(request);
   const pendingPlan = parseIncomingPendingPlan(body.pendingPlan, sessionId);
-
-  if (isConfirmMessage(body.message)) {
-    const executeAttempt = consumeExecuteAttempt({ key: sessionId });
-    if (!executeAttempt.allowed) {
-      appendAuditRecord(
-        auditRecordForRejectedPendingPlan({
-          pendingPlan: body.pendingPlan,
-          sessionId,
-          outcome: "Rate limited.",
-        }),
-      );
-      return NextResponse.json(
-        { error: "Too many execute attempts. Try again later." },
-        {
-          status: 429,
-          headers: { "Retry-After": String(executeAttempt.retryAfterSeconds) },
-        },
-      );
-    }
-  }
 
   if (pendingPlan === "invalid") {
     appendAuditRecord(
@@ -196,18 +190,38 @@ export async function POST(request: Request) {
     );
   }
 
-  if (pendingPlan && isConfirmMessage(body.message) && !claimPlanRecord(sessionId, pendingPlan)) {
-    appendAuditRecord(
-      auditRecordForRejectedPendingPlan({
-        pendingPlan,
-        sessionId,
-        outcome: "Invalid pending plan.",
-      }),
-    );
-    return NextResponse.json(
-      { error: "Invalid pending plan." },
-      { status: 400 },
-    );
+  if (pendingPlan && isConfirmMessage(body.message)) {
+    const executeAttempt = consumeExecuteAttempt({ key: sessionId });
+    if (!executeAttempt.allowed) {
+      appendAuditRecord(
+        auditRecordForRejectedPendingPlan({
+          pendingPlan,
+          sessionId,
+          outcome: "Rate limited.",
+        }),
+      );
+      return NextResponse.json(
+        { error: "Too many execute attempts. Try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(executeAttempt.retryAfterSeconds) },
+        },
+      );
+    }
+
+    if (!claimPlanRecord(sessionId, pendingPlan)) {
+      appendAuditRecord(
+        auditRecordForRejectedPendingPlan({
+          pendingPlan,
+          sessionId,
+          outcome: "Invalid pending plan.",
+        }),
+      );
+      return NextResponse.json(
+        { error: "Invalid pending plan." },
+        { status: 400 },
+      );
+    }
   }
 
   const result = handleMockChat({
@@ -966,7 +980,12 @@ function claimPlanRecord(sessionId: string, pendingPlan: PendingPlan) {
   try {
     lockHandle = openSync(lockPath, "wx");
   } catch {
+    clearStalePlanLock(lockPath);
+    try {
+      lockHandle = openSync(lockPath, "wx");
+    } catch {
     return false;
+    }
   }
 
   try {
@@ -989,6 +1008,15 @@ function claimPlanRecord(sessionId: string, pendingPlan: PendingPlan) {
       unlinkSync(lockPath);
     } catch {
     }
+  }
+}
+
+function clearStalePlanLock(lockPath: string) {
+  try {
+    if (Date.now() - statSync(lockPath).mtimeMs > STALE_PLAN_LOCK_MS) {
+      unlinkSync(lockPath);
+    }
+  } catch {
   }
 }
 
@@ -1099,8 +1127,12 @@ function containsPrivateKeyField(value: unknown): boolean {
 
   return Object.entries(value).some(
     ([key, nestedValue]) =>
-      key === "privateKey" || containsPrivateKeyField(nestedValue),
+      isPrivateKeyFieldName(key) || containsPrivateKeyField(nestedValue),
   );
+}
+
+function isPrivateKeyFieldName(key: string) {
+  return PRIVATE_KEY_FIELD_NAMES.has(key.toLowerCase());
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

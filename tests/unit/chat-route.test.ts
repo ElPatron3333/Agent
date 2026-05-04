@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +12,7 @@ const AUDIT_LOG_PATH = path.join(
   ".smithii-local",
   "audit-log.json",
 );
+const PLAN_RECORDS_DIR = path.join(process.cwd(), ".smithii-local", "plan-records");
 
 function jsonRequest(body: unknown, cookie?: string) {
   return new Request("http://localhost/api/chat", {
@@ -58,29 +60,39 @@ describe("/api/chat route", () => {
   });
 
   it("rejects private-key fields anywhere in the request body", async () => {
+    const cookie = `smithii_agent_session=private-key-reject-${Date.now()}`;
     const response = await POST(
-      jsonRequest({
-        message: "no",
-        draft: {
-          tool: "bundle_launch",
-          data: completeLaunchDraftData(),
+      jsonRequest(
+        {
+          message: "no",
+          draft: {
+            tool: "bundle_launch",
+            data: completeLaunchDraftData(),
+          },
+          launchWalletSelection: {
+            devWalletPubkey: "DevWallet...91nP",
+            bundleWallets: [
+              {
+                pubkey: "Injected...1111",
+                buyAmountSol: 0.1,
+                privateKey: "PRIVATE_KEY_SHOULD_NOT_ECHO",
+              },
+            ],
+          },
         },
-        launchWalletSelection: {
-          devWalletPubkey: "DevWallet...91nP",
-          bundleWallets: [
-            {
-              pubkey: "Injected...1111",
-              buyAmountSol: 0.1,
-              privateKey: "PRIVATE_KEY_SHOULD_NOT_ECHO",
-            },
-          ],
-        },
-      }),
+        cookie,
+      ),
     );
 
     expect(response.status).toBe(400);
     expect(JSON.stringify(await responseJson(response))).not.toContain(
       "PRIVATE_KEY_SHOULD_NOT_ECHO",
+    );
+    expect(auditRecordsForSession(sessionIdFromCookie(cookie))).toContainEqual(
+      expect.objectContaining({
+        event: "private_key_rejected",
+        outcome: "Invalid request.",
+      }),
     );
   });
 
@@ -296,6 +308,45 @@ describe("/api/chat route", () => {
     expect(await responseJson(replayResponse)).toEqual({
       error: "Invalid pending plan.",
     });
+  });
+
+  it("recovers from stale local claim locks", async () => {
+    const previewResponse = await POST(
+      jsonRequest({
+        message: "no",
+        draft: {
+          tool: "bundle_launch",
+          data: completeLaunchDraftData(),
+        },
+        launchWalletSelection: {
+          devWalletPubkey: "DevWallet...91nP",
+          bundleWallets: [{ pubkey: "BndlWallet...4kd9", buyAmountSol: 0.1 }],
+        },
+      }),
+    );
+    const preview = await responseJson(previewResponse);
+    const cookie = cookieHeaderFrom(previewResponse);
+    const pendingPlan = preview.pendingPlan as { id: string };
+    const lockPath = `${planRecordPath(sessionIdFromCookie(cookie), pendingPlan.id)}.lock`;
+    mkdirSync(path.dirname(lockPath), { recursive: true });
+    writeFileSync(lockPath, "stale");
+    const staleTime = new Date(Date.now() - 10 * 60 * 1000);
+    utimesSync(lockPath, staleTime, staleTime);
+
+    const confirmResponse = await POST(
+      jsonRequest(
+        {
+          message: "confirm",
+          pendingPlan: preview.pendingPlan,
+        },
+        cookie,
+      ),
+    );
+
+    expect(confirmResponse.status).toBe(200);
+    expect(JSON.stringify(await responseJson(confirmResponse))).toContain(
+      "Mock Bundle Launch executed",
+    );
   });
 
   it("records bundle launch preview and confirm calls in the local audit log", async () => {
@@ -867,6 +918,25 @@ describe("/api/chat route", () => {
     );
   });
 
+  it.each(["pk", "privKeys", "privateKeys", "private_key", "secretKey", "seedPhrase"])(
+    "rejects private-key alias field %s anywhere in the request body",
+    async (fieldName) => {
+      const response = await POST(
+        jsonRequest({
+          message: "no",
+          nested: {
+            [fieldName]: "PRIVATE_KEY_ALIAS_SHOULD_NOT_ECHO",
+          },
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(JSON.stringify(await responseJson(response))).not.toContain(
+        "PRIVATE_KEY_ALIAS_SHOULD_NOT_ECHO",
+      );
+    },
+  );
+
   it("rate-limits execute confirmations per session", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-30T01:00:00.000Z"));
@@ -939,9 +1009,129 @@ describe("/api/chat route", () => {
     );
 
     expect(limitedResponse.status).toBe(429);
+    expect(limitedResponse.headers.get("Retry-After")).toBe("60");
     expect(await responseJson(limitedResponse)).toEqual({
       error: "Too many execute attempts. Try again later.",
     });
+  });
+
+  it("resets execute rate limit after the one-minute window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-30T02:00:00.000Z"));
+
+    const cookie = `smithii_agent_session=rate-reset-${Date.now()}`;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const previewResponse = await POST(
+        jsonRequest(
+          {
+            message: "no",
+            draft: {
+              tool: "bundle_launch",
+              data: completeLaunchDraftData(),
+            },
+            launchWalletSelection: {
+              devWalletPubkey: "DevWallet...91nP",
+              bundleWallets: [
+                { pubkey: `BndlWalletReset...${attempt}`, buyAmountSol: 0.1 },
+              ],
+            },
+          },
+          cookie,
+        ),
+      );
+      const preview = await responseJson(previewResponse);
+
+      expect(
+        await POST(
+          jsonRequest(
+            {
+              message: "confirm",
+              pendingPlan: preview.pendingPlan,
+            },
+            cookie,
+          ),
+        ),
+      ).toMatchObject({ status: 200 });
+    }
+
+    vi.setSystemTime(new Date("2026-04-30T02:01:00.000Z"));
+
+    const previewResponse = await POST(
+      jsonRequest(
+        {
+          message: "no",
+          draft: {
+            tool: "bundle_launch",
+            data: completeLaunchDraftData(),
+          },
+          launchWalletSelection: {
+            devWalletPubkey: "DevWallet...91nP",
+            bundleWallets: [{ pubkey: "BndlWalletReset...6", buyAmountSol: 0.1 }],
+          },
+        },
+        cookie,
+      ),
+    );
+    const preview = await responseJson(previewResponse);
+
+    const confirmResponse = await POST(
+      jsonRequest(
+        {
+          message: "confirm",
+          pendingPlan: preview.pendingPlan,
+        },
+        cookie,
+      ),
+    );
+
+    expect(confirmResponse.status).toBe(200);
+  });
+
+  it("does not spend execute quota on confirm words without an active plan", async () => {
+    const cookie = `smithii_agent_session=no-plan-confirm-${Date.now()}`;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const noPlanResponse = await POST(jsonRequest({ message: "yes" }, cookie));
+
+      expect(noPlanResponse.status).toBe(200);
+      expect(await responseJson(noPlanResponse)).toMatchObject({
+        executionStatus: "Waiting for preview",
+      });
+    }
+
+    const previewResponse = await POST(
+      jsonRequest(
+        {
+          message: "no",
+          draft: {
+            tool: "bundle_launch",
+            data: completeLaunchDraftData(),
+          },
+          launchWalletSelection: {
+            devWalletPubkey: "DevWallet...91nP",
+            bundleWallets: [{ pubkey: "BndlWallet...4kd9", buyAmountSol: 0.1 }],
+          },
+        },
+        cookie,
+      ),
+    );
+    const preview = await responseJson(previewResponse);
+
+    const confirmResponse = await POST(
+      jsonRequest(
+        {
+          message: "confirm",
+          pendingPlan: preview.pendingPlan,
+        },
+        cookie,
+      ),
+    );
+
+    expect(confirmResponse.status).toBe(200);
+    expect(JSON.stringify(await responseJson(confirmResponse))).toContain(
+      "Mock Bundle Launch executed",
+    );
   });
 
   it("rejects pending plans with unknown tools", async () => {
@@ -977,6 +1167,13 @@ function sessionIdFromCookie(cookie: string) {
   return cookie.split("=")[1];
 }
 
+function planRecordPath(sessionId: string, planId: string) {
+  const digest = createHash("sha256")
+    .update(`${sessionId}:${planId}`)
+    .digest("hex");
+  return path.join(PLAN_RECORDS_DIR, `${digest}.json`);
+}
+
 function auditRecordsForSession(sessionId: string) {
   if (!existsSync(AUDIT_LOG_PATH)) {
     return [];
@@ -992,7 +1189,13 @@ function auditRecordsForSession(sessionId: string) {
     : content
         .split(/\r?\n/)
         .filter(Boolean)
-        .map((line) => JSON.parse(line) as Record<string, unknown>);
+        .flatMap((line) => {
+          try {
+            return [JSON.parse(line) as Record<string, unknown>];
+          } catch {
+            return [];
+          }
+        });
 
   return records.filter((record) => record.sessionId === sessionId);
 }

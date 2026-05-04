@@ -8,7 +8,8 @@ export type AuditLogRecord = {
     | "preview_prepared"
     | "mock_executed"
     | "confirmation_rejected"
-    | "confirmation_expired";
+    | "confirmation_expired"
+    | "private_key_rejected";
   tool?: PendingPlan["tool"];
   planId?: string;
   outcome: string;

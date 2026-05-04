@@ -15,6 +15,8 @@ export function consumeExecuteAttempt({
   key: string;
   now?: number;
 }) {
+  pruneExecuteAttemptRateLimiter(now);
+
   const state = executeAttemptState.get(key);
   if (!state || now - state.windowStart >= EXECUTE_ATTEMPT_WINDOW_MS) {
     executeAttemptState.set(key, {
@@ -38,6 +40,17 @@ export function consumeExecuteAttempt({
 
   state.count += 1;
   return { allowed: true };
+}
+
+export function pruneExecuteAttemptRateLimiter(now = Date.now()) {
+  let pruned = 0;
+  for (const [key, state] of executeAttemptState.entries()) {
+    if (now - state.windowStart >= EXECUTE_ATTEMPT_WINDOW_MS) {
+      executeAttemptState.delete(key);
+      pruned += 1;
+    }
+  }
+  return pruned;
 }
 
 export function resetExecuteAttemptRateLimiter() {
