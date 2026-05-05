@@ -1200,9 +1200,13 @@ function BundleSwapPreparationStatus({
   return (
     <div className="mt-3 rounded-md border border-emerald-800/80 p-3 text-sm text-slate-300">
       <PreviewRow label="Packet" value={summary.status} />
+      <PreviewRow label="Flow" value={summary.flow} />
+      <PreviewRow label="Plan" value={summary.planId} />
+      <PreviewRow label="Idempotency" value={summary.idempotencyKey} />
       <PreviewRow label="Action" value={summary.action} />
       <PreviewRow label="Pool" value={summary.pool} />
       <PreviewRow label="Wallets" value={String(summary.walletCount)} />
+      <PreviewRow label="Amounts" value={String(summary.amountCount)} />
       <PreviewRow label="Fees" value={summary.expectedFeesLamports} />
     </div>
   );
