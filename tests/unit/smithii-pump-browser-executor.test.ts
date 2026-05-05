@@ -1,4 +1,4 @@
-﻿import { PublicKey } from "@solana/web3.js";
+﻿import { Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,6 +8,10 @@ import {
   normalizePumpBrowserExecutionError,
   PumpBrowserExecutionError,
 } from "../../src/lib/smithii/pump-browser-executor";
+
+type PumpBrowserExecutorClientInput = Parameters<
+  typeof executePumpBundleLaunchBrowserHandoff
+>[0];
 
 describe("Smithii Pump browser executor", () => {
   it("normalizes SDK-like errors without copying unsafe bodies", () => {
@@ -42,7 +46,10 @@ describe("Smithii Pump browser executor", () => {
 
   it("uploads metadata before creating and sniping a token without returning secrets", async () => {
     const calls: string[] = [];
-    const uploadedMetadata = { uri: "ipfs://metadata", name: "Uploaded Token" };
+    const uploadedMetadata = {
+      metadata: { name: "Uploaded Token", symbol: "BLUE" },
+      metadataUri: "ipfs://metadata",
+    };
     const createCalls: unknown[] = [];
     const client = {
       uploadMetadata: async (metadata: unknown) => {
@@ -68,9 +75,7 @@ describe("Smithii Pump browser executor", () => {
         throw new Error("unused");
       },
     };
-    const mintKeypair = {
-      publicKey: { toBase58: () => "Mint111111111111111111111111111111111" },
-    };
+    const mintKeypair = Keypair.generate();
     const buyers = [
       { pk: "SECRET_BUYER_PK_1", amount: 0.1 },
       { pk: "SECRET_BUYER_PK_2", amount: 0.2 },
@@ -108,7 +113,7 @@ describe("Smithii Pump browser executor", () => {
       flow: "bundle_launch",
       planId: "live_bundle_launch_test",
       idempotencyKey: "idempotency-key",
-      mint: "Mint111111111111111111111111111111111",
+      mint: mintKeypair.publicKey.toBase58(),
       createTxSignature: "create-signature",
       buyerTxSignatures: ["buyer-signature-1", "buyer-signature-2"],
       bundleIds: ["bundle-1"],
@@ -117,6 +122,44 @@ describe("Smithii Pump browser executor", () => {
     expect(JSON.stringify(result)).not.toContain("SECRET_BUYER_PK");
     expect(JSON.stringify(result)).not.toContain("Launch metadata should stay out of results");
     expect(JSON.stringify(result)).not.toContain("SHOULD_NOT_RETURN");
+  });
+
+  it("rejects malformed launch SDK results instead of returning success-shaped output", async () => {
+    const client = {
+      uploadMetadata: async () => ({
+        metadata: { name: "Uploaded Token", symbol: "BLUE" },
+        metadataUri: "ipfs://metadata",
+      }),
+      createAndSnipeToken: async () => ({
+        buyerTxSignatures: ["buyer-signature"],
+        bundleIds: ["bundle-1"],
+        paymentSignature: "payment-signature",
+      }),
+      bundleSellBuy: async () => {
+        throw new Error("unused");
+      },
+    } as unknown as PumpBrowserExecutorClientInput;
+
+    await expect(
+      executePumpBundleLaunchBrowserHandoff(client, {
+        plan: browserPlan("bundle_launch", "2026-05-06T08:05:00.000Z"),
+        metadata: {
+          name: "Blue Frog",
+          symbol: "BLUE",
+          description: "Launch metadata should stay out of results",
+          file: new Blob(["image"]),
+        },
+        mintKeypair: Keypair.generate(),
+        devAmount: 0.5,
+        buyers: [{ pk: "SECRET_BUYER_PK", amount: 0.1 }],
+        isCashbackCoin: false,
+        isTokenPregenerated: false,
+        now: new Date("2026-05-06T08:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({
+      category: "unknown",
+      message: "Smithii launch result is missing createTxSignature.",
+    });
   });
 
   it("maps supported bundle swap directions to SDK actions without returning private keys", async () => {
@@ -240,6 +283,28 @@ describe("Smithii Pump browser executor", () => {
 
     expect(bundleSellBuyCalls).toEqual([]);
   });
+
+  it("rejects malformed swap SDK results instead of returning success-shaped output", async () => {
+    const client = pumpClientWithBundleSellBuy(async () => ({
+      bundleIds: ["bundle-buy"],
+      paymentSignature: "payment-buy",
+    }));
+
+    await expect(
+      executePumpBundleSwapBrowserHandoff(client, {
+        plan: browserPlan("bundle_swap", "2026-05-06T08:05:00.000Z"),
+        mint: new PublicKey("11111111111111111111111111111111"),
+        direction: "sol_to_token",
+        pool: "pump",
+        privKeys: ["SECRET_SWAP_PK"],
+        amounts: [0.1],
+        now: new Date("2026-05-06T08:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({
+      category: "unknown",
+      message: "Smithii swap result is missing txSignatures.",
+    });
+  });
 });
 
 function browserPlan(flow: "bundle_launch" | "bundle_swap", expiresAt: string) {
@@ -272,5 +337,5 @@ function pumpClientWithBundleSellBuy(
       throw new Error("unused");
     },
     bundleSellBuy,
-  };
+  } as unknown as PumpBrowserExecutorClientInput;
 }

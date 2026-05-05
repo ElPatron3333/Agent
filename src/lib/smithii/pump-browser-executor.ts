@@ -1,4 +1,12 @@
-﻿import type { PublicKey } from '@solana/web3.js';
+import type {
+  PumpBundleSellBuyArgs,
+  PumpBundleSellBuyResult,
+  PumpCreateAndSnipeArgs,
+  PumpCreateAndSnipeResult,
+  PumpMetadataResponse,
+  UploadPumpMetadataArgs,
+} from '@smithii/sdk/pump';
+import type { Keypair, PublicKey } from '@solana/web3.js';
 
 import type {
   BrowserExecutableFlow,
@@ -22,40 +30,25 @@ export type NormalizedPumpBrowserExecutionError = {
 };
 
 export type PumpBrowserExecutorClient = {
-  uploadMetadata(input: PumpBundleLaunchMetadataInput): Promise<unknown>;
-  createAndSnipeToken(input: PumpCreateAndSnipeTokenInput): Promise<unknown>;
-  bundleSellBuy(input: PumpBundleSellBuyInput): Promise<unknown>;
+  uploadMetadata(
+    input: PumpBundleLaunchMetadataInput,
+  ): Promise<PumpMetadataResponse>;
+  createAndSnipeToken(
+    input: PumpCreateAndSnipeTokenInput,
+  ): Promise<PumpCreateAndSnipeResult>;
+  bundleSellBuy(input: PumpBundleSellBuyInput): Promise<PumpBundleSellBuyResult>;
 };
 
-export type PumpBundleLaunchMetadataInput = {
-  name: string;
-  symbol: string;
-  description: string;
-  file: Blob | File;
-  twitter?: string | null;
-  telegram?: string | null;
-  website?: string | null;
-};
+export type PumpBundleLaunchMetadataInput = Omit<
+  UploadPumpMetadataArgs,
+  'http' | 'proxyUrl'
+>;
 
-export type PumpBundleBuyerInput = {
-  pk: string;
-  amount: number;
-};
+export type PumpBundleBuyerInput = PumpCreateAndSnipeArgs['buyers'][number];
 
-export type PumpMintKeypairInput = {
-  publicKey: {
-    toBase58(): string;
-  };
-};
+export type PumpMintKeypairInput = Keypair;
 
-export type PumpCreateAndSnipeTokenInput = {
-  mintKeypair: PumpMintKeypairInput;
-  metadata: unknown;
-  devAmount: number;
-  buyers: PumpBundleBuyerInput[];
-  isCashbackCoin: boolean;
-  isTokenPregenerated: boolean;
-};
+export type PumpCreateAndSnipeTokenInput = PumpCreateAndSnipeArgs;
 
 export type PumpBundleLaunchBrowserHandoffInput = {
   plan: BrowserExecutionPlan;
@@ -73,10 +66,10 @@ export type PumpBundleLaunchBrowserHandoffResult = {
   planId: string;
   idempotencyKey: string;
   mint: string;
-  createTxSignature?: string;
+  createTxSignature: string;
   buyerTxSignatures: string[];
   bundleIds: string[];
-  paymentSignature?: string;
+  paymentSignature: string;
 };
 
 export type PumpBundleSwapDirection =
@@ -84,14 +77,10 @@ export type PumpBundleSwapDirection =
   | 'token_to_sol'
   | 'token_to_token';
 
-export type PumpBundleSwapPool = 'pump' | 'pump-amm' | 'launchlab' | 'bonk';
+export type PumpBundleSwapPool = NonNullable<PumpBundleSellBuyArgs['pool']>;
 
-export type PumpBundleSellBuyInput = {
-  mint: PublicKey;
-  action: 'buy' | 'sell';
+export type PumpBundleSellBuyInput = Omit<PumpBundleSellBuyArgs, 'pool'> & {
   pool: PumpBundleSwapPool;
-  privKeys: string[];
-  amounts: number[];
 };
 
 export type PumpBundleSwapBrowserHandoffInput = {
@@ -111,7 +100,7 @@ export type PumpBundleSwapBrowserHandoffResult = {
   action: 'buy' | 'sell';
   bundleIds: string[];
   txSignatures: string[];
-  paymentSignature?: string;
+  paymentSignature: string;
 };
 
 export class PumpBrowserExecutionError extends Error {
@@ -219,17 +208,17 @@ export async function executePumpBundleLaunchBrowserHandoff(
       isCashbackCoin: input.isCashbackCoin,
       isTokenPregenerated: input.isTokenPregenerated,
     });
-    const resultRecord = isRecord(result) ? result : {};
+    const launchResult = assertPumpLaunchResult(result);
 
     return {
       flow: 'bundle_launch',
       planId: input.plan.planId,
       idempotencyKey: input.plan.idempotencyKey,
       mint: input.mintKeypair.publicKey.toBase58(),
-      createTxSignature: safeString(resultRecord.createTxSignature),
-      buyerTxSignatures: stringArray(resultRecord.buyerTxSignatures),
-      bundleIds: stringArray(resultRecord.bundleIds),
-      paymentSignature: safeString(resultRecord.paymentSignature),
+      createTxSignature: launchResult.createTxSignature,
+      buyerTxSignatures: launchResult.buyerTxSignatures,
+      bundleIds: launchResult.bundleIds,
+      paymentSignature: launchResult.paymentSignature,
     };
   } catch (error) {
     throw toPumpBrowserExecutionError(error);
@@ -252,16 +241,16 @@ export async function executePumpBundleSwapBrowserHandoff(
       privKeys: input.privKeys,
       amounts: input.amounts,
     });
-    const resultRecord = isRecord(result) ? result : {};
+    const swapResult = assertPumpSwapResult(result);
 
     return {
       flow: 'bundle_swap',
       planId: input.plan.planId,
       idempotencyKey: input.plan.idempotencyKey,
       action,
-      bundleIds: stringArray(resultRecord.bundleIds),
-      txSignatures: stringArray(resultRecord.txSignatures),
-      paymentSignature: safeString(resultRecord.paymentSignature),
+      bundleIds: swapResult.bundleIds,
+      txSignatures: swapResult.txSignatures,
+      paymentSignature: swapResult.paymentSignature,
     };
   } catch (error) {
     throw toPumpBrowserExecutionError(error);
@@ -305,6 +294,75 @@ function swapAction(direction: PumpBundleSwapDirection): 'buy' | 'sell' {
   });
 }
 
+function assertPumpLaunchResult(
+  result: PumpCreateAndSnipeResult,
+): PumpCreateAndSnipeResult {
+  const record: Record<string, unknown> = isRecord(result) ? result : {};
+
+  return {
+    createTxSignature: requiredString(
+      record.createTxSignature,
+      'Smithii launch result is missing createTxSignature.',
+    ),
+    buyerTxSignatures: requiredStringArray(
+      record.buyerTxSignatures,
+      'Smithii launch result is missing buyerTxSignatures.',
+    ),
+    bundleIds: requiredStringArray(
+      record.bundleIds,
+      'Smithii launch result is missing bundleIds.',
+    ),
+    paymentSignature: requiredString(
+      record.paymentSignature,
+      'Smithii launch result is missing paymentSignature.',
+    ),
+  };
+}
+
+function assertPumpSwapResult(
+  result: PumpBundleSellBuyResult,
+): PumpBundleSellBuyResult {
+  const record: Record<string, unknown> = isRecord(result) ? result : {};
+
+  return {
+    bundleIds: requiredStringArray(
+      record.bundleIds,
+      'Smithii swap result is missing bundleIds.',
+    ),
+    txSignatures: requiredStringArray(
+      record.txSignatures,
+      'Smithii swap result is missing txSignatures.',
+    ),
+    paymentSignature: requiredString(
+      record.paymentSignature,
+      'Smithii swap result is missing paymentSignature.',
+    ),
+  };
+}
+
+function requiredString(value: unknown, message: string): string {
+  if (typeof value === 'string' && value.length > 0) {
+    return value;
+  }
+
+  throw malformedResultError(message);
+}
+
+function requiredStringArray(value: unknown, message: string): string[] {
+  if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
+    return value;
+  }
+
+  throw malformedResultError(message);
+}
+
+function malformedResultError(message: string): PumpBrowserExecutionError {
+  return new PumpBrowserExecutionError({
+    category: 'unknown',
+    message,
+  });
+}
+
 function toPumpBrowserExecutionError(error: unknown): PumpBrowserExecutionError {
   if (error instanceof PumpBrowserExecutionError) {
     return error;
@@ -341,14 +399,6 @@ function categoryForErrorName(
 
 function safeString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
-}
-
-function stringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
