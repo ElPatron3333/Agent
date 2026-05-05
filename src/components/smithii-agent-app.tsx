@@ -23,6 +23,10 @@ import {
 } from "@/lib/agent/client-chat-state";
 import type { AuditLogRecord } from "@/lib/audit-log-types";
 import type { SmithiiLiveBoundary } from "@/lib/smithii/live-boundary";
+import {
+  browserHandoffUiModel,
+  type BrowserHandoffUiModel,
+} from "@/lib/smithii/browser-handoff-ui";
 import type { GlobalSettings } from "@/lib/smithii/types";
 import { pauseVolumeBot } from "@/lib/smithii/mock";
 import { launchVolumeTemplates } from "@/lib/smithii/templates";
@@ -111,6 +115,11 @@ export function SmithiiAgentApp() {
   )
     ? selectedVolumeWalletPubkey
     : "";
+  const browserHandoff = browserHandoffUiModel({
+    activePreview,
+    pendingPlan,
+    smithiiLive,
+  });
 
   useEffect(() => {
     void refreshAuditLog();
@@ -407,6 +416,9 @@ export function SmithiiAgentApp() {
                   <p className="mt-4 rounded-md border border-cyan-950/80 p-3 text-sm leading-6 text-slate-300">
                     {liveBoundaryText(smithiiLive)}
                   </p>
+                  {browserHandoff ? (
+                    <BrowserHandoffPanel model={browserHandoff} />
+                  ) : null}
                 </Panel>
               </div>
 
@@ -1042,6 +1054,32 @@ function PreviewPanel({ preview }: { preview: ActivePreview | null }) {
         {preview.summary}
       </p>
     </Panel>
+  );
+}
+
+function BrowserHandoffPanel({ model }: { model: BrowserHandoffUiModel }) {
+  return (
+    <div className="mt-4 rounded-md border border-emerald-900/80 bg-emerald-950/20 p-3">
+      <PreviewRow label="Handoff status" value={model.status} />
+      <PreviewRow label="Flow" value={model.flowLabel} />
+      <PreviewRow label="SDK method" value={model.sdkMethod} />
+      <PreviewRow label="Plan" value={model.planId} />
+      <div className="mt-3">
+        <p className="text-xs uppercase text-slate-500">Required in browser</p>
+        <ul className="mt-2 space-y-1 text-sm text-slate-300">
+          {model.requiredMaterials.map((material) => (
+            <li key={material}>{material}</li>
+          ))}
+        </ul>
+      </div>
+      <button
+        className="mt-3 h-9 w-full cursor-not-allowed rounded-md border border-emerald-800 px-3 text-sm font-semibold text-emerald-100 opacity-70"
+        type="button"
+        disabled
+      >
+        {model.disabledActionLabel}
+      </button>
+    </div>
   );
 }
 

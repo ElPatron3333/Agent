@@ -74,6 +74,15 @@ describe("Smithii browser handoff UI model", () => {
       }),
     ).toBeNull();
   });
+  it("does not render a model when the pending plan tool does not match the preview", () => {
+    expect(
+      browserHandoffUiModel({
+        activePreview: bundleLaunchPreview(),
+        pendingPlan: pendingPlan("bundle_swap"),
+        smithiiLive: boundary("browser-handoff-ready", "PumpFunClient.createAndSnipeToken"),
+      }),
+    ).toBeNull();
+  });
 });
 
 const secretLabelPattern = /\b(pk|privKeys|privateKey|privateKeys|secretKey|mnemonic|seedPhrase)\b/i;
