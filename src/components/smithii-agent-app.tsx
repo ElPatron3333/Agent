@@ -27,6 +27,11 @@ import {
   browserHandoffUiModel,
   type BrowserHandoffUiModel,
 } from "@/lib/smithii/browser-handoff-ui";
+import {
+  bundleSwapBrowserExecutionSummary,
+  prepareBundleSwapBrowserExecution,
+  type BundleSwapBrowserExecutionSummary,
+} from "@/lib/smithii/bundle-swap-browser-wiring";
 import type { GlobalSettings } from "@/lib/smithii/types";
 import { pauseVolumeBot } from "@/lib/smithii/mock";
 import { launchVolumeTemplates } from "@/lib/smithii/templates";
@@ -55,6 +60,18 @@ const initialMessages: ChatMessage[] = [
 ];
 
 type BundleSwapPreviewState = Extract<ActivePreview, { kind: "bundle_swap" }>;
+
+type BundleSwapPreparationState =
+  | {
+      status: "ready";
+      scopeKey: string;
+      summary: BundleSwapBrowserExecutionSummary;
+    }
+  | {
+      status: "blocked";
+      scopeKey: string;
+      reason: string;
+    };
 
 const defaultPreview: ActivePreview = {
   kind: "bundle_launch",
@@ -107,6 +124,8 @@ export function SmithiiAgentApp() {
   const [auditLog, setAuditLog] = useState<AuditLogRecord[]>([]);
   const [walletImportStatus, setWalletImportStatus] =
     useState("Private keys stay in browser state.");
+  const [bundleSwapPreparation, setBundleSwapPreparation] =
+    useState<BundleSwapPreparationState | null>(null);
   const [isSending, setIsSending] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const activeVolumeWalletPubkey = walletRoster.some(
@@ -120,6 +139,16 @@ export function SmithiiAgentApp() {
     pendingPlan,
     smithiiLive,
   });
+  const bundleSwapPreparationScope = bundleSwapPreparationScopeKey({
+    activePreview,
+    pendingPlan,
+    smithiiLive,
+    walletRoster,
+  });
+  const visibleBundleSwapPreparation =
+    bundleSwapPreparation?.scopeKey === bundleSwapPreparationScope
+      ? bundleSwapPreparation
+      : null;
 
   useEffect(() => {
     void refreshAuditLog();
@@ -289,6 +318,44 @@ export function SmithiiAgentApp() {
     setLastSequenceConfig(snapshot);
   }
 
+  function prepareBundleSwapBrowserPacket() {
+    const scopeKey = bundleSwapPreparationScope;
+    const feeWalletPubkey = feeWalletPubkeyForRoster(walletRoster);
+    if (!feeWalletPubkey) {
+      setBundleSwapPreparation({
+        status: "blocked",
+        scopeKey,
+        reason: "Connected fee wallet signer is missing.",
+      });
+      return;
+    }
+
+    const prepared = prepareBundleSwapBrowserExecution({
+      activePreview,
+      pendingPlan,
+      smithiiLive,
+      walletRoster,
+      feeWalletPubkey,
+      nonce: bundleSwapPreparationNonce(pendingPlan),
+      now: new Date(),
+    });
+
+    if (prepared.status === "blocked") {
+      setBundleSwapPreparation({
+        status: "blocked",
+        scopeKey,
+        reason: prepared.reason,
+      });
+      return;
+    }
+
+    setBundleSwapPreparation({
+      status: "ready",
+      scopeKey,
+      summary: bundleSwapBrowserExecutionSummary(prepared.packet),
+    });
+  }
+
   return (
     <main className="min-h-screen bg-[#070a0a] text-slate-100">
       <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[320px_1fr]">
@@ -418,7 +485,15 @@ export function SmithiiAgentApp() {
                     {liveBoundaryText(smithiiLive)}
                   </p>
                   {browserHandoff ? (
-                    <BrowserHandoffPanel model={browserHandoff} />
+                    <BrowserHandoffPanel
+                      model={browserHandoff}
+                      preparation={visibleBundleSwapPreparation}
+                      onPrepare={
+                        browserHandoff.preparation
+                          ? prepareBundleSwapBrowserPacket
+                          : undefined
+                      }
+                    />
                   ) : null}
                 </Panel>
               </div>
@@ -1065,7 +1140,17 @@ function PreviewPanel({ preview }: { preview: ActivePreview | null }) {
   );
 }
 
-function BrowserHandoffPanel({ model }: { model: BrowserHandoffUiModel }) {
+function BrowserHandoffPanel({
+  model,
+  preparation,
+  onPrepare,
+}: {
+  model: BrowserHandoffUiModel;
+  preparation: BundleSwapPreparationState | null;
+  onPrepare?: () => void;
+}) {
+  const canPrepare = Boolean(model.preparation && onPrepare);
+
   return (
     <div className="mt-4 rounded-md border border-emerald-900/80 bg-emerald-950/20 p-3">
       <PreviewRow label="Handoff status" value={model.status} />
@@ -1080,13 +1165,45 @@ function BrowserHandoffPanel({ model }: { model: BrowserHandoffUiModel }) {
           ))}
         </ul>
       </div>
+      {preparation ? <BundleSwapPreparationStatus preparation={preparation} /> : null}
       <button
-        className="mt-3 h-9 w-full cursor-not-allowed rounded-md border border-emerald-800 px-3 text-sm font-semibold text-emerald-100 opacity-70"
+        className={`mt-3 h-9 w-full rounded-md border px-3 text-sm font-semibold ${
+          canPrepare
+            ? "border-emerald-500 bg-emerald-400 text-slate-950"
+            : "cursor-not-allowed border-emerald-800 text-emerald-100 opacity-70"
+        }`}
         type="button"
-        disabled
+        disabled={!canPrepare}
+        onClick={onPrepare}
       >
-        {model.disabledActionLabel}
+        {model.preparation?.actionLabel ?? model.disabledActionLabel}
       </button>
+    </div>
+  );
+}
+
+function BundleSwapPreparationStatus({
+  preparation,
+}: {
+  preparation: BundleSwapPreparationState;
+}) {
+  if (preparation.status === "blocked") {
+    return (
+      <p className="mt-3 rounded-md border border-amber-800/80 p-3 text-sm text-amber-100">
+        Browser swap packet unavailable: {preparation.reason}
+      </p>
+    );
+  }
+
+  const { summary } = preparation;
+
+  return (
+    <div className="mt-3 rounded-md border border-emerald-800/80 p-3 text-sm text-slate-300">
+      <PreviewRow label="Packet" value={summary.status} />
+      <PreviewRow label="Action" value={summary.action} />
+      <PreviewRow label="Pool" value={summary.pool} />
+      <PreviewRow label="Wallets" value={String(summary.walletCount)} />
+      <PreviewRow label="Fees" value={summary.expectedFeesLamports} />
     </div>
   );
 }
@@ -1258,6 +1375,49 @@ function draftSummary(draft: Draft | null) {
   }
 
   return "Ready for preview";
+}
+
+function bundleSwapPreparationScopeKey({
+  activePreview,
+  pendingPlan,
+  smithiiLive,
+  walletRoster,
+}: {
+  activePreview: ActivePreview | null;
+  pendingPlan: PendingPlan | null;
+  smithiiLive: SmithiiLiveBoundary | null;
+  walletRoster: BrowserWalletEntry[];
+}) {
+  const previewId =
+    activePreview?.kind === "volume_bot"
+      ? activePreview.botId
+      : activePreview?.kind === "launch_volume_sequence"
+        ? activePreview.sequenceId
+        : activePreview?.planId;
+  const publicWalletMaterial = walletRoster
+    .map((wallet) =>
+      [wallet.pubkey, wallet.role, Boolean(wallet.privateKey.trim())].join(":"),
+    )
+    .join("|");
+
+  return [
+    activePreview?.kind ?? "none",
+    previewId ?? "no-preview",
+    pendingPlan?.tool ?? "no-tool",
+    pendingPlan?.id ?? "no-plan",
+    smithiiLive?.mode ?? "no-live",
+    publicWalletMaterial,
+  ].join("::");
+}
+
+function feeWalletPubkeyForRoster(walletRoster: BrowserWalletEntry[]) {
+  return walletRoster.find((wallet) => wallet.role === "dev")?.pubkey ?? null;
+}
+
+function bundleSwapPreparationNonce(pendingPlan: PendingPlan | null) {
+  return pendingPlan
+    ? `bundle-swap-browser-${pendingPlan.id}-${pendingPlan.createdAt}`
+    : "bundle-swap-browser-no-plan";
 }
 
 function launchSelectionForDraft(
