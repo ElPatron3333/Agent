@@ -46,6 +46,7 @@ If Smithii answers only a subset of flows, the app should enable only that subse
 ## Related Docs
 
 - `docs/smithii-integration-questions.md`
+- `docs/phase8c-readiness-matrix.md`
 - `docs/phase8a-live-boundary.md`
 - `docs/smithii-sdk-spike.md`
 - `PLAN.md`
