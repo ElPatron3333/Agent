@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { handleMockChat } from "../../src/lib/agent/mock-chat";
+import {
+  handleMockChat,
+  type BundleLaunchDraft,
+  type Draft,
+} from "../../src/lib/agent/mock-chat";
 
 const now = Date.parse("2026-04-29T00:00:00.000Z");
 
@@ -145,7 +149,7 @@ describe("mock chat agent", () => {
     expect(described.assistantMessage.text).toBe(
       "How many bundle wallets should buy? Use 1-15.",
     );
-    expect(described.draft?.data.description).toBe(
+    expect(expectBundleLaunchDraft(described.draft).data.description).toBe(
       "A blue frog community token.",
     );
 
@@ -157,7 +161,7 @@ describe("mock chat agent", () => {
     expect(walletCount.assistantMessage.text).toBe(
       "How much SOL should each bundle wallet buy?",
     );
-    expect(walletCount.draft?.data.walletCount).toBe(3);
+    expect(expectBundleLaunchDraft(walletCount.draft).data.walletCount).toBe(3);
 
     const solAmount = handleMockChat({
       message: "0.5",
@@ -167,7 +171,9 @@ describe("mock chat agent", () => {
     expect(solAmount.assistantMessage.text).toBe(
       "What image filename should I use? Use a .png or .jpg placeholder.",
     );
-    expect(solAmount.draft?.data.solPerWallet).toBe(0.5);
+    expect(expectBundleLaunchDraft(solAmount.draft).data.solPerWallet).toBe(
+      0.5,
+    );
 
     const image = handleMockChat({
       message: "blue-frog.png",
@@ -177,7 +183,9 @@ describe("mock chat agent", () => {
     expect(image.assistantMessage.text).toBe(
       "Add socials? Reply yes or no.",
     );
-    expect(image.draft?.data.imageFileName).toBe("blue-frog.png");
+    expect(expectBundleLaunchDraft(image.draft).data.imageFileName).toBe(
+      "blue-frog.png",
+    );
 
     const socialsToggle = handleMockChat({
       message: "yes",
@@ -187,7 +195,9 @@ describe("mock chat agent", () => {
     expect(socialsToggle.assistantMessage.text).toBe(
       "Website URL? Reply skip if none.",
     );
-    expect(socialsToggle.draft?.data.socialsEnabled).toBe(true);
+    expect(expectBundleLaunchDraft(socialsToggle.draft).data.socialsEnabled).toBe(
+      true,
+    );
 
     const website = handleMockChat({
       message: "https://bluefrog.example",
@@ -331,7 +341,9 @@ describe("mock chat agent", () => {
     expect(result.assistantMessage.text).toBe(
       "Wallet count must be a whole number from 1 to 15.",
     );
-    expect(result.draft?.data.walletCount).toBeUndefined();
+    expect(
+      expectBundleLaunchDraft(result.draft).data.walletCount,
+    ).toBeUndefined();
   });
 
   it("rejects bundle launch descriptions over 250 characters", () => {
@@ -350,7 +362,9 @@ describe("mock chat agent", () => {
     expect(result.assistantMessage.text).toBe(
       "Description must be 250 characters or fewer.",
     );
-    expect(result.draft?.data.description).toBeUndefined();
+    expect(
+      expectBundleLaunchDraft(result.draft).data.description,
+    ).toBeUndefined();
   });
 
   it("rejects invalid bundle launch social URL prefixes", () => {
@@ -1076,6 +1090,18 @@ describe("mock chat agent", () => {
     expect(expired.executionStatus).toBe("Preview expired");
   });
 });
+
+function expectBundleLaunchDraft(
+  draft: Draft | null | undefined,
+): BundleLaunchDraft {
+  expect(draft?.tool).toBe("bundle_launch");
+
+  if (draft?.tool !== "bundle_launch") {
+    throw new Error("Expected bundle launch draft.");
+  }
+
+  return draft;
+}
 
 function launchDraftWaitingForWebsite() {
   return {
