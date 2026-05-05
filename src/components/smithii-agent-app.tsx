@@ -225,7 +225,8 @@ export function SmithiiAgentApp() {
           error.message === "A dev wallet is required for Bundle Launch." ||
           error.message === "A bundle wallet is required for Volume Bot." ||
           error.message === "Invalid volume wallet selection." ||
-          error.message === "Invalid pending plan.")
+          error.message === "Invalid pending plan." ||
+          error.message === "Preview expired")
           ? error.message
           : "The mock chat route failed. Check the dev logs and try again.";
       setMessages((current) => [
@@ -822,8 +823,15 @@ function auditEventLabel(event: AuditLogRecord["event"]) {
 
 async function responseErrorMessage(response: Response) {
   try {
-    const body = (await response.json()) as { error?: unknown };
-    return typeof body.error === "string" ? body.error : null;
+    const body = (await response.json()) as {
+      error?: unknown;
+      executionStatus?: unknown;
+    };
+    if (typeof body.error === "string") {
+      return body.error;
+    }
+
+    return typeof body.executionStatus === "string" ? body.executionStatus : null;
   } catch {
     return null;
   }

@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import type { ActivePreview, PendingPlan } from "../../src/lib/agent/mock-chat";
@@ -58,6 +61,22 @@ describe("Smithii browser handoff UI model", () => {
     expect(JSON.stringify(model)).not.toMatch(secretLabelPattern);
   });
 
+  it("returns a non-secret token-to-SOL Bundle Swap handoff shell model", () => {
+    const model = browserHandoffUiModel({
+      activePreview: bundleSwapPreview("token_to_sol"),
+      pendingPlan: pendingPlan("bundle_swap"),
+      smithiiLive: boundary("browser-handoff-ready", "PumpFunClient.bundleSellBuy"),
+    });
+
+    expect(model).toMatchObject({
+      status: "Ready for browser handoff setup",
+      flowLabel: "Bundle Swap",
+      planId: "plan_bundle_swap_sol_to_token_2_abc",
+      sdkMethod: "PumpFunClient.bundleSellBuy",
+      disabledActionLabel: "Browser handoff not wired",
+    });
+    expect(JSON.stringify(model)).not.toMatch(secretLabelPattern);
+  });
   it.each([
     ["missing preview", null, pendingPlan("bundle_launch"), boundary("browser-handoff-ready", "PumpFunClient.createAndSnipeToken")],
     ["missing pending plan", bundleLaunchPreview(), null, boundary("browser-handoff-ready", "PumpFunClient.createAndSnipeToken")],
@@ -82,6 +101,24 @@ describe("Smithii browser handoff UI model", () => {
         smithiiLive: boundary("browser-handoff-ready", "PumpFunClient.createAndSnipeToken"),
       }),
     ).toBeNull();
+  });
+
+  it("does not render a model when the pending plan id does not match the preview", () => {
+    expect(
+      browserHandoffUiModel({
+        activePreview: bundleLaunchPreview(),
+        pendingPlan: { ...pendingPlan("bundle_launch"), id: "plan_bundle_launch_other" },
+        smithiiLive: boundary("browser-handoff-ready", "PumpFunClient.createAndSnipeToken"),
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps the Pump browser executor out of app and component imports", () => {
+    const offenders = filesUnder("src/app", "src/components").filter((filePath) =>
+      readFileSync(filePath, "utf8").includes("pump-browser-executor"),
+    );
+
+    expect(offenders).toEqual([]);
   });
 });
 
@@ -112,7 +149,7 @@ function pendingPlan(tool: PendingPlan["tool"]): PendingPlan {
           ? "bot_volume_200_Mint111_abc"
           : "sequence_launch_volume_momentum_v1_5_abc",
     tool,
-    expiresAt: "2026-05-06T08:05:00.000Z",
+    createdAt: 1778054700000,
   };
 }
 
@@ -225,4 +262,20 @@ function launchVolumeSequencePreview(): Extract<ActivePreview, { kind: "launch_v
     globalSettings,
     summary: "Momentum sequence.",
   };
+}
+function filesUnder(...roots: string[]) {
+  return roots.flatMap((root) => sourceFilesIn(root));
+}
+
+function sourceFilesIn(directory: string): string[] {
+  return readdirSync(directory).flatMap((entry) => {
+    const fullPath = join(directory, entry);
+    const stats = statSync(fullPath);
+
+    if (stats.isDirectory()) {
+      return sourceFilesIn(fullPath);
+    }
+
+    return /\.tsx?$/.test(fullPath) ? [fullPath] : [];
+  });
 }

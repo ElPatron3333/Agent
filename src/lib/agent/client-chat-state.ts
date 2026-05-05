@@ -59,6 +59,14 @@ export function chatErrorStateForResponse(error: string | null | undefined) {
     };
   }
 
+  if (error === "Preview expired") {
+    return {
+      message: error,
+      clearPendingPlan: true,
+      clearActivePreview: true,
+      executionStatus: "Preview expired",
+    };
+  }
   return {
     message: GENERIC_CHAT_ERROR,
     clearPendingPlan: false,

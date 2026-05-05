@@ -28,7 +28,11 @@ export function browserHandoffUiModel({
     return null;
   }
 
-  if (activePreview.kind === "bundle_launch" && pendingPlan.tool === "bundle_launch") {
+  if (
+    activePreview.kind === "bundle_launch" &&
+    pendingPlan.tool === "bundle_launch" &&
+    activePreview.planId === pendingPlan.id
+  ) {
     return {
       status: HANDOFF_STATUS,
       flowLabel: "Bundle Launch",
@@ -47,7 +51,8 @@ export function browserHandoffUiModel({
   if (
     activePreview.kind === "bundle_swap" &&
     activePreview.direction !== "token_to_token" &&
-    pendingPlan.tool === "bundle_swap"
+    pendingPlan.tool === "bundle_swap" &&
+    activePreview.planId === pendingPlan.id
   ) {
     return {
       status: HANDOFF_STATUS,

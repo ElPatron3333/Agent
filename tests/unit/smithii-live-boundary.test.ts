@@ -37,6 +37,19 @@ describe("Smithii Phase 8A live boundary", () => {
     expect(JSON.stringify(boundary)).not.toMatch(/buyers\[\]\.pk|privKeys\[\]/);
   });
 
+  it("marks token-to-SOL bundle swaps as browser handoff ready", () => {
+    const boundary = liveBoundaryForPreview({
+      ...bundleSwapPreview(),
+      direction: "token_to_sol",
+      fromToken: "Mint111",
+      toToken: "SOL",
+    });
+
+    expect(boundary.mode).toBe("browser-handoff-ready");
+    expect(boundary.sdkMethod).toBe("PumpFunClient.bundleSellBuy");
+    expect(boundary.blockers).toEqual([]);
+    expect(boundary.questionsForSmithii).toEqual([]);
+  });
   it("blocks token-to-token bundle swap live handoff", () => {
     const boundary = liveBoundaryForPreview({
       ...bundleSwapPreview(),
@@ -199,4 +212,3 @@ function launchVolumeSequencePreview(): Extract<
     summary: "Momentum sequence: launch first, then queue Volume Bot after 5 minutes.",
   };
 }
-
