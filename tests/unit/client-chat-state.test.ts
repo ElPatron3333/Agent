@@ -49,6 +49,14 @@ describe("client chat state transitions", () => {
     });
   });
 
+  it("clears pending preview state after a preview expired response", () => {
+    expect(chatErrorStateForResponse("Preview expired")).toEqual({
+      message: "Preview expired",
+      clearPendingPlan: true,
+      clearActivePreview: true,
+      executionStatus: "Preview expired",
+    });
+  });
   it("clears the active preview after a launch to volume sequence is queued", () => {
     const previousPreview = bundleLaunchPreview();
 
