@@ -30,18 +30,18 @@ Every live-enabled flow must satisfy all gates below:
 
 ## Answer Intake Status
 
-Use this table when Smithii responds. Status values: `unanswered`, `answered`, `partial`, `blocked`, `needs meeting`.
+Use this table when Smithii responds. Status values: `not received`, `answered`, `partial`, `blocked`, `needs meeting`.
 
 | Area | Current status | Required answer | Unlocks | Code areas likely affected | Acceptance checks |
 |---|---|---|---|---|---|
-| Browser execution module | unanswered | Exact browser API/module for each supported flow. | Any live handoff implementation. | `src/lib/smithii/*`, client execution UI, API response metadata. | Backend still rejects private-key-shaped fields; no server live SDK call. |
-| Raw key requirements | unanswered | Confirmation whether any supported path requires raw keys outside browser/user control. | Zero-custody eligibility per flow. | Request validation, browser wallet roster, live-boundary classification. | Server tests prove private keys are rejected and not reflected in responses. |
-| Auth/licensing | unanswered | Partner auth model and server-issued fields. | Production auth scaffolding. | Env validation, API route issuing plan/auth records, browser handoff state. | Missing auth keeps live execute disabled. |
-| Preview/plan binding | unanswered | Plan/quote fields, expiry, signature/replay rules. | Safe preview-to-confirm handoff. | Pending plan store, plan signing, confirmation metadata. | Expired/tampered plans fail before execution. |
-| Idempotency | unanswered | Key format, duplicate response behavior, retry window. | Safe execute retries. | Execute client, confirmation button state, audit log. | Double-confirm test has deterministic handling. |
-| Success/result contract | unanswered | Verifiable success fields per flow. | Audit log and user-facing success messages. | Result types, chat response rendering, audit log schema. | UI displays only returned/verifiable values. |
-| Error contract | unanswered | Error codes/states and retryability. | Failure UI and retry policy. | Error mapping, chat response copy, audit records. | Known failures produce specific messages; unknown failures stay generic and non-invented. |
-| Sandbox/mainnet test path | unanswered | Sandbox/devnet details or low-amount mainnet procedure. | First live acceptance test. | Test docs, env setup, runbook. | No beta/live claim until test path passes. |
+| Browser execution module | not received | Exact browser API/module for each supported flow. | Any live handoff implementation. | `src/lib/smithii/*`, client execution UI, API response metadata. | Backend still rejects private-key-shaped fields; no server live SDK call. |
+| Raw key requirements | not received | Confirmation whether any supported path requires raw keys outside browser/user control. | Zero-custody eligibility per flow. | Request validation, browser wallet roster, live-boundary classification. | Server tests prove private keys are rejected and not reflected in responses. |
+| Auth/licensing | not received | Partner auth model and server-issued fields. | Production auth scaffolding. | Env validation, API route issuing plan/auth records, browser handoff state. | Missing auth keeps live execute disabled. |
+| Preview/plan binding | not received | Plan/quote fields, expiry, signature/replay rules. | Safe preview-to-confirm handoff. | Pending plan store, plan signing, confirmation metadata. | Expired/tampered plans fail before execution. |
+| Idempotency | not received | Key format, duplicate response behavior, retry window. | Safe execute retries. | Execute client, confirmation button state, audit log. | Double-confirm test has deterministic handling. |
+| Success/result contract | not received | Verifiable success fields per flow. | Audit log and user-facing success messages. | Result types, chat response rendering, audit log schema. | UI displays only returned/verifiable values. |
+| Error contract | not received | Error codes/states and retryability. | Failure UI and retry policy. | Error mapping, chat response copy, audit records. | Known failures produce specific messages; unknown failures stay generic and non-invented. |
+| Sandbox/mainnet test path | not received | Sandbox/devnet details or low-amount mainnet procedure. | First live acceptance test. | Test docs, env setup, runbook. | No beta/live claim until test path passes. |
 
 ## Flow Readiness Matrix
 

@@ -33,6 +33,9 @@ type VolumeBotUnresolvedField =
   | "sellMode"
   | "sellStrategy";
 
+const VOLUME_RANDOMIZE_QUESTION =
+  "Does AntiMEVSingleConfig.randomize only randomize per-bundle buy/sell direction, or also amount, delay, wallet selection, or other behavior?";
+
 export type VolumeBotAntiMevPlan = {
   client: "AntiMEVClient";
   method: "runSingle";
@@ -260,6 +263,7 @@ export function toAntiMevSinglePlan(
     questionsForSmithii: [
       "Does AntiMEVClient.runSingle exactly power Pro Volume Bot or only Anti-MEV volume?",
       "Where do auto-sell, return-to-wallet, sell timing, and sell strategy map in SDK v0.2.0?",
+      VOLUME_RANDOMIZE_QUESTION,
       "Can Smithii provide a zero-custody multi-wallet Volume Bot flow, or is runMultiple intentionally backend-keyed?",
     ],
   };

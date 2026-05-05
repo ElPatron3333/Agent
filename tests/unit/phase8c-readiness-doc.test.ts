@@ -24,4 +24,19 @@ describe("Phase 8C readiness matrix", () => {
       expect(doc).toContain(requiredTerm);
     }
   });
+
+  it("uses the same missing-answer status as the answer intake runbook", () => {
+    const readinessMatrix = readFileSync(
+      path.join(process.cwd(), "docs", "phase8c-readiness-matrix.md"),
+      "utf8",
+    );
+    const answerRunbook = readFileSync(
+      path.join(process.cwd(), "docs", "phase8c-answer-intake-runbook.md"),
+      "utf8",
+    );
+
+    expect(readinessMatrix).toContain("not received");
+    expect(answerRunbook).toContain("not received");
+    expect(readinessMatrix).not.toContain("unanswered");
+  });
 });

@@ -66,6 +66,8 @@ Coverage is partial and needs Smithii confirmation. The SDK v0.2.0 type surface 
 - sellMode
 - sellStrategy
 
+`AntiMEVSingleConfig.randomize` is also unresolved. Do not map our random amount, delay, or wallet behavior to that flag unless Smithii confirms exactly what it randomizes.
+
 AntiMEVClient.runMultiple is blocked for this MVP because it sends privateKeys[] to the Smithii backend. That violates our backend private-key rule.
 
 ## Integration Gate
@@ -74,7 +76,8 @@ Do not wire live Smithii execution yet. The next live integration step needs Smi
 
 1. Whether AntiMEVClient.runSingle is the same product surface as Smithii Pro Volume Bot or only Anti-MEV volume.
 2. Where auto-sell, return-to-wallet, sell timing, and sell strategy map in SDK v0.2.0.
-3. Whether Smithii has a zero-custody multi-wallet Volume Bot flow, or whether runMultiple is intentionally backend-keyed.
+3. Whether AntiMEVSingleConfig.randomize is direction-only or also affects amount, delay, wallet selection, or other behavior.
+4. Whether Smithii has a zero-custody multi-wallet Volume Bot flow, or whether runMultiple is intentionally backend-keyed.
 
 Until that is answered, the correct integration state is a thin typed adapter plus mock-first previews and explicit confirmation gates. The canonical Phase 8B question packet is `docs/smithii-integration-questions.md`.
 

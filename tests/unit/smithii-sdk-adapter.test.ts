@@ -216,7 +216,10 @@ describe("Smithii SDK adapter spike", () => {
     });
     expect(plan.unresolvedFields).toContain("sellStrategy");
     expect("randomize" in plan.config).toBe(false);
-    expect(plan.questionsForSmithii).toHaveLength(3);
+    expect(plan.questionsForSmithii).toContain(
+      "Does AntiMEVSingleConfig.randomize only randomize per-bundle buy/sell direction, or also amount, delay, wallet selection, or other behavior?",
+    );
+    expect(plan.questionsForSmithii).toHaveLength(4);
   });
 
   it("maps fixed volume bot ranges to fixed Anti-MEV config values", () => {

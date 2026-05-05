@@ -24,7 +24,7 @@ The main gap is consistency. Several Phase 8C invariants are covered for one or 
 | Token-to-token Bundle Swap stays blocked awaiting Smithii | Covered in live-boundary and route preview tests. | `tests/unit/smithii-live-boundary.test.ts:38`, `tests/unit/chat-route.test.ts:517`. |
 | Volume Bot and Launch + Volume stay blocked awaiting Smithii | Covered in live-boundary tests and route preview tests. | `tests/unit/smithii-live-boundary.test.ts:53`, `tests/unit/smithii-live-boundary.test.ts:66`, `tests/unit/chat-route.test.ts:611`, `tests/unit/chat-route.test.ts:874`. |
 | SDK private-key use is browser-only | Covered in the SDK adapter spike tests. | `tests/unit/smithii-sdk-adapter.test.ts:28`, `tests/unit/smithii-sdk-adapter.test.ts:76`, `tests/unit/smithii-sdk-adapter.test.ts:159`, `tests/unit/smithii-sdk-adapter.test.ts:236`. |
-| Volume Bot `randomize` is not mapped by assumption | Partially covered by asserting the current Anti-MEV plan omits `randomize`. | `tests/unit/smithii-sdk-adapter.test.ts:198`, `tests/unit/smithii-sdk-adapter.test.ts:218`; readiness blocker at `docs/phase8c-readiness-matrix.md:83`. |
+| Volume Bot `randomize` is not mapped by assumption | Covered by asserting the current Anti-MEV plan omits `randomize` and keeps the semantics as an explicit Smithii question. | `tests/unit/smithii-sdk-adapter.test.ts:198`, `tests/unit/smithii-sdk-adapter.test.ts:218`; readiness blocker at `docs/phase8c-readiness-matrix.md:85`. |
 | Mock execution returns deterministic fake outputs | Covered in mock tool tests and some route/agent tests. | `tests/unit/smithii-tools.test.ts:456`, `tests/unit/mock-agent.test.ts:1012`, `tests/unit/chat-route.test.ts:332`, `tests/unit/chat-route.test.ts:498`, `tests/unit/chat-route.test.ts:920`. |
 
 ## Confirmed Test Gaps For Step 2
@@ -57,7 +57,7 @@ Add an audit-log route test that stores all private-key alias fields in a local 
 
 ### GAP-3: Lock Volume Bot randomize as an unresolved blocker in live metadata
 
-The readiness matrix treats `AntiMEVSingleConfig.randomize` semantics as a Volume Bot blocker (`docs/phase8c-readiness-matrix.md:83`). Current SDK adapter tests only assert that `randomize` is not emitted (`tests/unit/smithii-sdk-adapter.test.ts:218`), and current live-boundary questions do not mention randomize (`src/lib/smithii/live-boundary.ts:119`).
+The readiness matrix treats `AntiMEVSingleConfig.randomize` semantics as a Volume Bot blocker (`docs/phase8c-readiness-matrix.md:85`). Current SDK adapter and live-boundary tests assert that `randomize` is not emitted by assumption and remains an explicit Smithii question.
 
 Add a test that Volume Bot live-boundary metadata includes a Smithii question or blocker for `AntiMEVSingleConfig.randomize` semantics. If the test fails, update the boundary metadata; do not map `randomize` to behavior.
 
