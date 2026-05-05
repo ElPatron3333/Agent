@@ -45,6 +45,38 @@ function expectNoPrivateKeyAliasFields(value: unknown) {
   expect(privateKeyAliasFieldsIn(value)).toEqual([]);
 }
 
+function expectNoRealExecutionClaim(value: unknown) {
+  const serialized = JSON.stringify(value).toLowerCase();
+
+  for (const forbidden of [
+    "mainnet",
+    "sandbox",
+    "real tx",
+    "live tx",
+    "smithii execution succeeded",
+    "confirmed on-chain",
+  ]) {
+    expect(serialized).not.toContain(forbidden);
+  }
+}
+
+function expectMockConfirmationSafety(
+  value: Record<string, unknown>,
+  expectedMockMarkers: string[],
+) {
+  expectNoPrivateKeyAliasFields(value);
+  expectNoRealExecutionClaim(value);
+  expect(value.smithiiLive).toMatchObject({
+    mode: "mock",
+    serverExecution: "blocked",
+  });
+
+  const serialized = JSON.stringify(value);
+  for (const marker of expectedMockMarkers) {
+    expect(serialized).toContain(marker);
+  }
+}
+
 function privateKeyAliasFieldsIn(value: unknown): string[] {
   if (!value || typeof value !== "object") {
     return [];
@@ -938,6 +970,142 @@ describe("/api/chat route", () => {
     expect(await responseJson(replayResponse)).toEqual({
       error: "Invalid pending plan.",
     });
+  });
+
+  it("preserves Phase 8C route safety invariants across previews and mock confirmations", async () => {
+    const scenarios = [
+      {
+        name: "bundle launch",
+        request: {
+          message: "no",
+          draft: {
+            tool: "bundle_launch",
+            data: completeLaunchDraftData(),
+          },
+          launchWalletSelection: {
+            devWalletPubkey: "DevWallet...91nP",
+            bundleWallets: [
+              { pubkey: "BndlWallet...4kd9", buyAmountSol: 0.1 },
+            ],
+          },
+        },
+        previewMode: "browser-handoff-ready",
+        mockMarkers: ["Mock Bundle Launch executed", "MockMint"],
+      },
+      {
+        name: "bundle swap SOL to token",
+        request: {
+          message: "skip",
+          draft: {
+            tool: "bundle_swap",
+            data: {
+              direction: "sol_to_token",
+              fromToken: "SOL",
+              toToken: "MigratedMint111",
+              walletCount: 1,
+              quantityMode: { type: "fixed", perTxSol: 0.2 },
+              txCount: 1,
+              txDelayBlocks: 1,
+            },
+          },
+          swapWalletSelection: {
+            participatingWallets: [
+              { pubkey: "wallet111", solBalance: 1, tokenBalance: 0 },
+            ],
+          },
+        },
+        previewMode: "browser-handoff-ready",
+        mockMarkers: ["Mock Bundle Swap executed", "MockBundleSwapSignature"],
+      },
+      {
+        name: "bundle swap token to token",
+        request: {
+          message: "skip",
+          draft: {
+            tool: "bundle_swap",
+            data: {
+              direction: "token_to_token",
+              fromToken: "SourceMint111",
+              toToken: "TargetMint222",
+              walletCount: 1,
+              quantityMode: { type: "random_pct", minPct: 25, maxPct: 50 },
+              txCount: 1,
+              txDelayBlocks: 1,
+            },
+          },
+          swapWalletSelection: {
+            participatingWallets: [
+              { pubkey: "wallet111", solBalance: 1, tokenBalance: 10 },
+            ],
+          },
+        },
+        previewMode: "blocked-awaiting-smithii",
+        mockMarkers: ["Mock Bundle Swap executed", "MockBundleSwapSignature"],
+      },
+      {
+        name: "volume bot",
+        request: {
+          message: "1 to 33 percent, 10 to 20 seconds",
+          draft: {
+            tool: "volume_bot",
+            data: completeVolumeDraftData(),
+          },
+          volumeWalletSelection: {
+            volumeWalletPubkey: "VolumeWallet...5sTq",
+          },
+        },
+        previewMode: "blocked-awaiting-smithii",
+        mockMarkers: ["Mock Volume Bot started", "run_bot_volume"],
+      },
+      {
+        name: "launch plus volume",
+        request: {
+          message:
+            "launch a token called Blue Frog then start volume after 5 min with momentum template",
+          launchWalletSelection: {
+            devWalletPubkey: "DevWallet...91nP",
+            bundleWallets: [
+              { pubkey: "BndlWallet...4kd9", buyAmountSol: 0.3 },
+              { pubkey: "BndlWallet...8qa2", buyAmountSol: 0.3 },
+            ],
+          },
+          volumeWalletSelection: {
+            volumeWalletPubkey: "BndlWallet...4kd9",
+          },
+        },
+        previewMode: "blocked-awaiting-smithii",
+        mockMarkers: ["Mock Bundle Launch executed", "Volume Bot queued"],
+      },
+    ] as const;
+
+    for (const scenario of scenarios) {
+      const previewResponse = await POST(jsonRequest(scenario.request));
+      const preview = await responseJson(previewResponse);
+      const cookie = cookieHeaderFrom(previewResponse);
+
+      expect(previewResponse.status, scenario.name).toBe(200);
+      expectNoPrivateKeyAliasFields(preview);
+      expectNoRealExecutionClaim(preview);
+      expect(preview.pendingPlan, scenario.name).toBeTruthy();
+      expect(preview.smithiiLive).toMatchObject({
+        mode: scenario.previewMode,
+        serverExecution: "blocked",
+      });
+
+      const confirmResponse = await POST(
+        jsonRequest(
+          {
+            message: "confirm",
+            pendingPlan: preview.pendingPlan,
+          },
+          cookie,
+        ),
+      );
+      const confirmed = await responseJson(confirmResponse);
+
+      expect(confirmResponse.status, scenario.name).toBe(200);
+      expectMockConfirmationSafety(confirmed, [...scenario.mockMarkers]);
+    }
   });
 
   it("does not consume a pending plan on non-confirm draft requests", async () => {

@@ -2,7 +2,7 @@
 
 Date: 2026-05-05
 Scope: current test suite coverage against `docs/phase8c-readiness-matrix.md`
-Status: audit complete; implementation not started
+Status: audit complete; Step 2 regression tests implemented
 
 ## Summary
 
@@ -100,16 +100,17 @@ Do not add tests for exact Smithii API input/output shapes yet. These remain int
 
 ## Step 2 Test Backlog
 
-Recommended order:
+Implemented order:
 
-1. Add route-level Phase 8C invariant matrix for all flows.
-2. Add audit-log alias poison regression.
-3. Add Volume Bot `randomize` blocker regression and update metadata if needed.
-4. Add mock-confirmation no-live-result helper assertions.
-5. Add readiness-doc gate preservation check.
+1. Added route-level Phase 8C invariant matrix for all flows.
+2. Added audit-log alias poison regression.
+3. Added Volume Bot `randomize` blocker regression and updated boundary metadata.
+4. Added mock-confirmation no-live-result helper assertions.
+5. Added readiness-doc gate preservation check.
 
 ## Verification Run During Audit
 
 - Existing suite discovered: 12 unit test files.
 - Verification during audit: `git diff --check`, `pnpm test` (12 files, 135 tests), `pnpm lint`, and `pnpm build` all passed.
-- No implementation changes were made by this audit.
+- Verification after Step 2 implementation: targeted Vitest files passed; `pnpm test` passed with 13 files and 139 tests; `pnpm lint`, `pnpm build`, and `git diff --check` passed.
+- The audit itself made no code changes; Step 2 added regression tests and the missing Volume Bot boundary question for `AntiMEVSingleConfig.randomize`.

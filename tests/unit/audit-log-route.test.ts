@@ -155,6 +155,57 @@ describe("/api/audit-log route", () => {
     expect(JSON.stringify(audit)).not.toContain("SIGNATURE_SHOULD_NOT_ECHO");
   });
 
+  it("strips all private-key alias fields from poisoned stored audit records", async () => {
+    const sessionId = `audit-alias-poisoned-${Date.now()}`;
+    writeAuditLines([
+      {
+        id: "audit-alias-poisoned-record",
+        createdAt: "2026-04-30T00:00:00.000Z",
+        sessionId,
+        event: "preview_prepared",
+        tool: "bundle_launch",
+        planId: "plan_bundle_launch_1_0_10",
+        outcome: "Waiting for confirm",
+        pk: "PK_SHOULD_NOT_ECHO",
+        privKeys: ["PRIV_KEYS_SHOULD_NOT_ECHO"],
+        privateKeys: ["PRIVATE_KEYS_SHOULD_NOT_ECHO"],
+        private_key: "PRIVATE_KEY_ALIAS_SHOULD_NOT_ECHO",
+        secretKey: "SECRET_KEY_SHOULD_NOT_ECHO",
+        seedPhrase: "SEED_PHRASE_SHOULD_NOT_ECHO",
+      },
+    ]);
+
+    const auditResponse = await GET(
+      requestWithCookie(`smithii_agent_session=${sessionId}`),
+    );
+    const audit = await responseJson(auditResponse);
+    const serialized = JSON.stringify(audit);
+
+    expect(auditResponse.status).toBe(200);
+    expect(audit.records).toMatchObject([
+      {
+        event: "preview_prepared",
+        tool: "bundle_launch",
+        planId: "plan_bundle_launch_1_0_10",
+      },
+    ]);
+    for (const forbidden of [
+      "PK_SHOULD_NOT_ECHO",
+      "PRIV_KEYS_SHOULD_NOT_ECHO",
+      "PRIVATE_KEYS_SHOULD_NOT_ECHO",
+      "PRIVATE_KEY_ALIAS_SHOULD_NOT_ECHO",
+      "SECRET_KEY_SHOULD_NOT_ECHO",
+      "SEED_PHRASE_SHOULD_NOT_ECHO",
+      "privKeys",
+      "privateKeys",
+      "private_key",
+      "secretKey",
+      "seedPhrase",
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
   it("keeps valid audit records readable when one local line is malformed", async () => {
     const sessionId = `audit-malformed-${Date.now()}`;
     mkdirSync(path.dirname(AUDIT_LOG_PATH), { recursive: true });

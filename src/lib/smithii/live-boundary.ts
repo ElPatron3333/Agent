@@ -20,6 +20,8 @@ const BROWSER_TX_ASSEMBLY_QUESTION =
 
 const VOLUME_MAPPING_QUESTION =
   "Where do Volume Bot onPurchase, sellTiming, sellMode, and sellStrategy map in SDK v0.2.0?";
+const VOLUME_RANDOMIZE_QUESTION =
+  "Does AntiMEVSingleConfig.randomize only randomize per-bundle buy/sell direction, or also amount, delay, wallet selection, or other behavior?";
 
 const BUNDLE_LAUNCH_BROWSER_SIGNER_MATERIAL = "bundle buyer signer material";
 const BUNDLE_SWAP_BROWSER_SIGNER_MATERIAL = "bundle swap wallet signer material";
@@ -119,6 +121,7 @@ function volumeBotBoundary(): SmithiiLiveBoundary {
     questionsForSmithii: [
       "Does AntiMEVClient.runSingle exactly power Pro Volume Bot or only Anti-MEV volume?",
       VOLUME_MAPPING_QUESTION,
+      VOLUME_RANDOMIZE_QUESTION,
       "Can Smithii provide a zero-custody multi-wallet Volume Bot flow, or is runMultiple intentionally backend-keyed?",
     ],
   };

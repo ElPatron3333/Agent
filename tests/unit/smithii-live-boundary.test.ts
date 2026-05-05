@@ -63,6 +63,14 @@ describe("Smithii Phase 8A live boundary", () => {
     );
   });
 
+  it("keeps AntiMEV randomize semantics unresolved for Volume Bot live handoff", () => {
+    const boundary = liveBoundaryForPreview(volumeBotPreview());
+
+    expect(boundary.questionsForSmithii).toContain(
+      "Does AntiMEVSingleConfig.randomize only randomize per-bundle buy/sell direction, or also amount, delay, wallet selection, or other behavior?",
+    );
+  });
+
   it("keeps launch plus volume sequences blocked until every child flow is live-ready", () => {
     const boundary = liveBoundaryForPreview(launchVolumeSequencePreview());
 
