@@ -39,4 +39,18 @@ describe("Phase 8C readiness matrix", () => {
     expect(answerRunbook).toContain("not received");
     expect(readinessMatrix).not.toContain("unanswered");
   });
+
+  it("records Smithii's final answers as the Phase 8C-A implementation source", () => {
+    const intake = readFileSync(
+      path.join(process.cwd(), "docs", "phase8c-answer-intake-2026-05-06.md"),
+      "utf8",
+    );
+
+    expect(intake).toContain("Bundle Launch: live-eligible");
+    expect(intake).toContain("Bundle Swap SOL/token: live-eligible");
+    expect(intake).toContain("Bundle Swap token-to-token: blocked");
+    expect(intake).toContain("Volume Bot: blocked");
+    expect(intake).toContain("Launch + Volume: blocked");
+    expect(intake).toContain("Backend must not receive private keys");
+  });
 });

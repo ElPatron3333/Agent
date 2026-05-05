@@ -1,10 +1,11 @@
 # Phase 8C Readiness Matrix
 
-Date: 2026-05-05
-Status: waiting for Smithii answers
+Date: 2026-05-06
+Status: Smithii answers received; Phase 8C-A browser handoff package in progress
 Source packet: `docs/smithii-integration-questions.md`
 Answer intake runbook: `docs/phase8c-answer-intake-runbook.md`
 Test coverage audit: `docs/phase8c-test-coverage-audit.md`
+Dated intake: `docs/phase8c-answer-intake-2026-05-06.md`
 
 ## Purpose
 
@@ -34,20 +35,20 @@ Use this table when Smithii responds. Status values: `not received`, `answered`,
 
 | Area | Current status | Required answer | Unlocks | Code areas likely affected | Acceptance checks |
 |---|---|---|---|---|---|
-| Browser execution module | not received | Exact browser API/module for each supported flow. | Any live handoff implementation. | `src/lib/smithii/*`, client execution UI, API response metadata. | Backend still rejects private-key-shaped fields; no server live SDK call. |
-| Raw key requirements | not received | Confirmation whether any supported path requires raw keys outside browser/user control. | Zero-custody eligibility per flow. | Request validation, browser wallet roster, live-boundary classification. | Server tests prove private keys are rejected and not reflected in responses. |
-| Auth/licensing | not received | Partner auth model and server-issued fields. | Production auth scaffolding. | Env validation, API route issuing plan/auth records, browser handoff state. | Missing auth keeps live execute disabled. |
-| Preview/plan binding | not received | Plan/quote fields, expiry, signature/replay rules. | Safe preview-to-confirm handoff. | Pending plan store, plan signing, confirmation metadata. | Expired/tampered plans fail before execution. |
-| Idempotency | not received | Key format, duplicate response behavior, retry window. | Safe execute retries. | Execute client, confirmation button state, audit log. | Double-confirm test has deterministic handling. |
-| Success/result contract | not received | Verifiable success fields per flow. | Audit log and user-facing success messages. | Result types, chat response rendering, audit log schema. | UI displays only returned/verifiable values. |
-| Error contract | not received | Error codes/states and retryability. | Failure UI and retry policy. | Error mapping, chat response copy, audit records. | Known failures produce specific messages; unknown failures stay generic and non-invented. |
-| Sandbox/mainnet test path | not received | Sandbox/devnet details or low-amount mainnet procedure. | First live acceptance test. | Test docs, env setup, runbook. | No beta/live claim until test path passes. |
+| Browser execution module | answered | Public `@smithii/sdk/pump` for Bundle Launch and supported Bundle Buy/Sell. Classic Volume Bot uses backend endpoints and is blocked. | Pump browser handoff package. | `src/lib/smithii/*`, client execution UI, API response metadata. | Backend still rejects private-key-shaped fields; no server live SDK call. |
+| Raw key requirements | answered | Bundle secondary wallet keys may stay in browser memory; backend-keyed flows are blocked. | Zero-custody eligibility per flow. | Request validation, browser wallet roster, live-boundary classification. | Server tests prove private keys are rejected and not reflected in responses. |
+| Auth/licensing | answered | No partner-only auth found; runtime config needs RPC URL, Smithii proxy URL, and Jito UUID. | Browser handoff config. | Env validation, browser handoff state. | Missing config keeps live handoff disabled. |
+| Preview/plan binding | answered | Pump SDK does not need backend execution object; agent should issue non-secret plan/audit metadata. | Safe preview-to-confirm handoff. | Pending plan store, plan signing, confirmation metadata. | Expired/tampered plans fail before execution. |
+| Idempotency | answered | Pump SDK has no idempotency parameter; agent derives a local idempotency key. | Safe execute retries. | Browser handoff plan, confirmation button state, audit log. | Double-confirm test has deterministic handling. |
+| Success/result contract | answered | Bundle Launch and Bundle Buy/Sell result fields are defined. | Audit log and user-facing success messages. | Result types, chat response rendering, audit log schema. | UI displays only returned/verifiable values. |
+| Error contract | answered | Raw errors vary; app-owned normalized categories are required. | Failure UI and retry policy. | Error mapping, chat response copy, audit records. | Known failures produce specific messages; unknown failures stay generic and non-invented. |
+| Sandbox/mainnet test path | answered | No sandbox; use approved low-amount mainnet procedure with burner wallets. | First live acceptance test. | Test docs, env setup, runbook. | No beta/live claim until test path passes. |
 
 ## Flow Readiness Matrix
 
 ### Bundle Launch
 
-Current decision: blocked for live execution until Smithii answers the gates below.
+Current decision: live-eligible for browser-only implementation. First live test still requires runtime config, burner wallets, and explicit low-amount mainnet approval.
 
 | Requirement | Smithii answer needed | Decision rule |
 |---|---|---|
@@ -61,7 +62,7 @@ Current decision: blocked for live execution until Smithii answers the gates bel
 
 ### Bundle Swap
 
-Current decision: blocked for live execution until Smithii answers the gates below.
+Current decision: SOL-to-token and token-to-SOL are live-eligible for browser-only implementation. Token-to-token stays blocked.
 
 | Requirement | Smithii answer needed | Decision rule |
 |---|---|---|
@@ -75,7 +76,7 @@ Current decision: blocked for live execution until Smithii answers the gates bel
 
 ### Volume Bot
 
-Current decision: blocked for live execution until Smithii answers the gates below.
+Current decision: blocked. Smithii confirmed classic Volume Bot is backend-keyed and Anti-MEV is a separate product.
 
 | Requirement | Smithii answer needed | Decision rule |
 |---|---|---|
@@ -90,7 +91,7 @@ Current decision: blocked for live execution until Smithii answers the gates bel
 
 ### Launch + Volume Sequence
 
-Current decision: blocked for live execution until Bundle Launch, Volume Bot, and sequencing semantics are answered.
+Current decision: blocked. Smithii did not provide a launch-to-volume scheduler contract, and Volume Bot is backend-keyed.
 
 | Requirement | Smithii answer needed | Decision rule |
 |---|---|---|

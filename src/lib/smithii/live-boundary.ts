@@ -15,14 +15,6 @@ export type SmithiiLiveBoundary = {
   questionsForSmithii: string[];
 };
 
-const BROWSER_TX_ASSEMBLY_QUESTION =
-  "Can Smithii provide the browser-side tx assembly module or equivalent zero-custody handoff for this Pro flow?";
-
-const VOLUME_MAPPING_QUESTION =
-  "Where do Volume Bot onPurchase, sellTiming, sellMode, and sellStrategy map in SDK v0.2.0?";
-const VOLUME_RANDOMIZE_QUESTION =
-  "Does AntiMEVSingleConfig.randomize only randomize per-bundle buy/sell direction, or also amount, delay, wallet selection, or other behavior?";
-
 const BUNDLE_LAUNCH_BROWSER_SIGNER_MATERIAL = "bundle buyer signer material";
 const BUNDLE_SWAP_BROWSER_SIGNER_MATERIAL = "bundle swap wallet signer material";
 
@@ -37,7 +29,7 @@ export function liveBoundaryForPreview(
       sdkMethod: "PumpFunClient.createAndSnipeToken",
       browserRequiredSignerArgs: [BUNDLE_LAUNCH_BROWSER_SIGNER_MATERIAL],
       blockers: [],
-      questionsForSmithii: [BROWSER_TX_ASSEMBLY_QUESTION],
+      questionsForSmithii: [],
     };
   }
 
@@ -57,10 +49,9 @@ export function liveBoundaryForPreview(
       blockers: tokenToTokenBlockers,
       questionsForSmithii: tokenToTokenBlockers.length
         ? [
-            "Does Smithii expose a zero-custody token-to-token bundle swap path for Pro users?",
-            BROWSER_TX_ASSEMBLY_QUESTION,
+            "Token-to-token bundle swap is not supported in the reviewed Pump SDK flow.",
           ]
-        : [BROWSER_TX_ASSEMBLY_QUESTION],
+        : [],
     };
   }
 
@@ -75,13 +66,9 @@ export function liveBoundaryForPreview(
     sdkMethod: "Composite: Bundle Launch + Volume Bot",
     browserRequiredSignerArgs: [BUNDLE_LAUNCH_BROWSER_SIGNER_MATERIAL],
     blockers: [
-      "Launch + Volume sequence cannot be live until Volume Bot live mapping is confirmed.",
+      "Launch + Volume cannot be automated live because Smithii confirmed no launch-to-volume scheduler contract and Volume Bot is backend-keyed.",
     ],
-    questionsForSmithii: [
-      BROWSER_TX_ASSEMBLY_QUESTION,
-      "Can Smithii support launch-to-volume sequencing without backend private-key custody?",
-      VOLUME_MAPPING_QUESTION,
-    ],
+    questionsForSmithii: [],
   };
 }
 
@@ -112,18 +99,13 @@ function volumeBotBoundary(): SmithiiLiveBoundary {
     mode: "blocked-awaiting-smithii",
     serverExecution: "blocked",
     sdkPackage: "@smithii/sdk",
-    sdkMethod: "AntiMEVClient.runSingle",
+    sdkMethod: "market_maker_bot_ HTTP endpoints",
     browserRequiredSignerArgs: [],
     blockers: [
-      "Smithii must confirm Volume Bot onPurchase/sellTiming/sellMode/sellStrategy mapping.",
-      "AntiMEVClient.runMultiple is blocked because it sends wallet key material to the backend.",
+      "Classic Volume Bot is backend-keyed and cannot satisfy the zero-custody requirement for this integration.",
+      "Anti-MEV is a separate product from classic Volume Bot and multi-wallet Anti-MEV sends private keys to a backend.",
     ],
-    questionsForSmithii: [
-      "Does AntiMEVClient.runSingle exactly power Pro Volume Bot or only Anti-MEV volume?",
-      VOLUME_MAPPING_QUESTION,
-      VOLUME_RANDOMIZE_QUESTION,
-      "Can Smithii provide a zero-custody multi-wallet Volume Bot flow, or is runMultiple intentionally backend-keyed?",
-    ],
+    questionsForSmithii: [],
   };
 }
 

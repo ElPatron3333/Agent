@@ -22,6 +22,7 @@ describe("Smithii Phase 8A live boundary", () => {
     expect(boundary.sdkMethod).toBe("PumpFunClient.createAndSnipeToken");
     expect(boundary.browserRequiredSignerArgs).toContain("bundle buyer signer material");
     expect(boundary.blockers).toEqual([]);
+    expect(boundary.questionsForSmithii).toEqual([]);
     expect(JSON.stringify(boundary)).not.toMatch(/buyers\[\]\.pk|privKeys\[\]/);
   });
 
@@ -32,6 +33,7 @@ describe("Smithii Phase 8A live boundary", () => {
     expect(boundary.sdkMethod).toBe("PumpFunClient.bundleSellBuy");
     expect(boundary.browserRequiredSignerArgs).toContain("bundle swap wallet signer material");
     expect(boundary.blockers).toEqual([]);
+    expect(boundary.questionsForSmithii).toEqual([]);
     expect(JSON.stringify(boundary)).not.toMatch(/buyers\[\]\.pk|privKeys\[\]/);
   });
 
@@ -50,25 +52,15 @@ describe("Smithii Phase 8A live boundary", () => {
     );
   });
 
-  it("keeps volume bot live handoff blocked until Smithii confirms unresolved SDK fields", () => {
+  it("keeps classic Volume Bot blocked because Smithii confirmed it is backend-keyed", () => {
     const boundary = liveBoundaryForPreview(volumeBotPreview());
 
     expect(boundary.mode).toBe("blocked-awaiting-smithii");
-    expect(boundary.sdkMethod).toBe("AntiMEVClient.runSingle");
+    expect(boundary.sdkMethod).toBe("market_maker_bot_ HTTP endpoints");
     expect(boundary.blockers).toContain(
-      "Smithii must confirm Volume Bot onPurchase/sellTiming/sellMode/sellStrategy mapping.",
+      "Classic Volume Bot is backend-keyed and cannot satisfy the zero-custody requirement for this integration.",
     );
-    expect(boundary.questionsForSmithii).toContain(
-      "Does AntiMEVClient.runSingle exactly power Pro Volume Bot or only Anti-MEV volume?",
-    );
-  });
-
-  it("keeps AntiMEV randomize semantics unresolved for Volume Bot live handoff", () => {
-    const boundary = liveBoundaryForPreview(volumeBotPreview());
-
-    expect(boundary.questionsForSmithii).toContain(
-      "Does AntiMEVSingleConfig.randomize only randomize per-bundle buy/sell direction, or also amount, delay, wallet selection, or other behavior?",
-    );
+    expect(boundary.questionsForSmithii).toEqual([]);
   });
 
   it("keeps launch plus volume sequences blocked until every child flow is live-ready", () => {
@@ -77,7 +69,7 @@ describe("Smithii Phase 8A live boundary", () => {
     expect(boundary.mode).toBe("blocked-awaiting-smithii");
     expect(boundary.sdkMethod).toBe("Composite: Bundle Launch + Volume Bot");
     expect(boundary.blockers).toContain(
-      "Launch + Volume sequence cannot be live until Volume Bot live mapping is confirmed.",
+      "Launch + Volume cannot be automated live because Smithii confirmed no launch-to-volume scheduler contract and Volume Bot is backend-keyed.",
     );
   });
 
