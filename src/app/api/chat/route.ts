@@ -63,6 +63,7 @@ const PENDING_PLAN_TOOLS = new Set([
   "launch_volume_sequence",
 ]);
 const PRIVATE_KEY_FIELD_NAMES = new Set([
+  "mnemonic",
   "pk",
   "privatekey",
   "privatekeys",

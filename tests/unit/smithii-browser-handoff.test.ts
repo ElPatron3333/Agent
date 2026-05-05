@@ -40,7 +40,15 @@ describe("Smithii browser handoff contract", () => {
     expect(JSON.stringify(plan)).not.toContain("buyerWallets");
   });
 
-  it.each(["privateKey", "pk", "privKeys", "privateKeys", "secretKey", "seedPhrase"])(
+  it.each([
+    "privateKey",
+    "mnemonic",
+    "pk",
+    "privKeys",
+    "privateKeys",
+    "secretKey",
+    "seedPhrase",
+  ])(
     "rejects private-key-shaped params field %s",
     (fieldName) => {
       expect(() =>
@@ -55,6 +63,42 @@ describe("Smithii browser handoff contract", () => {
       ).toThrow("Browser execution plan params cannot contain private-key-shaped fields.");
     },
   );
+
+  it("allows null browser execution plan params as an explicit JSON value", () => {
+    const plan = createBrowserExecutionPlan({
+      flow: "bundle_swap",
+      wallet: "Trader111",
+      params: null,
+      expectedFeesLamports: "100000000",
+      now: new Date("2026-05-06T08:00:00.000Z"),
+      nonce: "nonce-null",
+    });
+
+    expect(plan.paramsHash).toBe(
+      "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+    );
+  });
+
+  it.each([
+    ["undefined", undefined],
+    ["function", () => "not-json"],
+    ["symbol", Symbol("not-json")],
+    ["bigint", BigInt(1)],
+    ["NaN", Number.NaN],
+    ["nested undefined", { token: "Mint111", amount: undefined }],
+    ["date", new Date("2026-05-06T08:00:00.000Z")],
+  ])("rejects non-JSON browser execution plan params: %s", (_label, params) => {
+    expect(() =>
+      createBrowserExecutionPlan({
+        flow: "bundle_swap",
+        wallet: "Trader111",
+        params,
+        expectedFeesLamports: "100000000",
+        now: new Date("2026-05-06T08:00:00.000Z"),
+        nonce: "nonce-json",
+      }),
+    ).toThrow("Browser execution plan params must be JSON-serializable.");
+  });
 
   it("validates required public browser SDK configuration", () => {
     expect(

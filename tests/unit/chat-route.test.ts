@@ -1210,7 +1210,15 @@ describe("/api/chat route", () => {
     );
   });
 
-  it.each(["pk", "privKeys", "privateKeys", "private_key", "secretKey", "seedPhrase"])(
+  it.each([
+    "mnemonic",
+    "pk",
+    "privKeys",
+    "privateKeys",
+    "private_key",
+    "secretKey",
+    "seedPhrase",
+  ])(
     "rejects private-key alias field %s anywhere in the request body",
     async (fieldName) => {
       const response = await POST(

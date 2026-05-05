@@ -40,6 +40,7 @@ export type PumpBrowserHandoffEnv = {
 
 const DEFAULT_PLAN_TTL_MS = 5 * 60 * 1000;
 const PRIVATE_KEY_FIELD_NAMES = new Set([
+  'mnemonic',
   'pk',
   'privatekey',
   'privatekeys',
@@ -134,21 +135,37 @@ function hashString(value: string) {
 }
 
 function stableJson(value: unknown): string {
-  return JSON.stringify(sortJsonValue(value));
+  return JSON.stringify(toStableJsonValue(value));
 }
 
-function sortJsonValue(value: unknown): unknown {
+function toStableJsonValue(value: unknown): unknown {
+  if (value === undefined) {
+    throw new Error('Browser execution plan params must be JSON-serializable.');
+  }
+  if (typeof value === 'function' || typeof value === 'symbol') {
+    throw new Error('Browser execution plan params must be JSON-serializable.');
+  }
+  if (typeof value === 'bigint') {
+    throw new Error('Browser execution plan params must be JSON-serializable.');
+  }
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    throw new Error('Browser execution plan params must be JSON-serializable.');
+  }
+
   if (Array.isArray(value)) {
-    return value.map(sortJsonValue);
+    return value.map(toStableJsonValue);
   }
   if (!isRecord(value)) {
     return value;
+  }
+  if (!isPlainJsonObject(value)) {
+    throw new Error('Browser execution plan params must be JSON-serializable.');
   }
 
   return Object.fromEntries(
     Object.keys(value)
       .sort()
-      .map((key) => [key, sortJsonValue(value[key])]),
+      .map((key) => [key, toStableJsonValue(value[key])]),
   );
 }
 
@@ -169,4 +186,9 @@ function containsPrivateKeyField(value: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isPlainJsonObject(value: Record<string, unknown>) {
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
