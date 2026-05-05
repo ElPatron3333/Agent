@@ -3,6 +3,7 @@
 Date: 2026-05-05
 Status: waiting for Smithii answers
 Source packet: `docs/smithii-integration-questions.md`
+Answer intake runbook: `docs/phase8c-answer-intake-runbook.md`
 Test coverage audit: `docs/phase8c-test-coverage-audit.md`
 
 ## Purpose

@@ -35,6 +35,7 @@ Smithii Agent is a conversational AI execution layer over Smithii's Pump.fun inf
 - 20-vs-25 wallet cap reconciliation for Bundle Swap (partner confirmed 20; UI shows 25 — Smithii to formalize)
 - Phase 8B packet at `docs/smithii-integration-questions.md` - canonical list of Smithii answers required before live execution wiring
 - Phase 8C readiness matrix at `docs/phase8c-readiness-matrix.md` - internal answer intake and unlock rules for live handoff work
+- Phase 8C answer intake runbook at `docs/phase8c-answer-intake-runbook.md` - template for converting Smithii replies into implementation decisions
 
 ### Not blocking — can build now
 ~70% of the build proceeds without any Smithii dependency. See §6 for what's library-blocked vs free-to-build.
