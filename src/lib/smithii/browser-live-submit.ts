@@ -1,4 +1,4 @@
-﻿import {
+import {
   createPumpBrowserClient,
   pumpBrowserHandoffConfigFromEnv,
   type PumpBrowserHandoffEnv,
@@ -80,6 +80,14 @@ export function browserLiveSubmitReadiness({
     return blocked(error instanceof Error ? error.message : "Smithii browser handoff config is invalid.");
   }
 
+  const signerWallet = signer.publicKey.toBase58();
+  const planWallet = packet.executorInput.plan.wallet;
+  if (signerWallet !== planWallet) {
+    return blocked(
+      `Connected browser wallet ${signerWallet} does not match browser execution plan wallet ${planWallet}.`,
+    );
+  }
+
   return { status: "ready" };
 }
 
@@ -124,9 +132,51 @@ export async function executeBrowserLiveSubmit({
   } catch (error) {
     return {
       status: "failed",
-      error: normalizePumpBrowserExecutionError(error),
+      error: sanitizeBrowserLiveSubmitError(
+        normalizePumpBrowserExecutionError(error),
+        packet!,
+      ),
     };
   }
+}
+
+const PRIVATE_KEY_FIELD_LABEL_PATTERN = /\b(pk|privKeys|privateKey|secretKey|seedPhrase)\b/gi;
+
+function sanitizeBrowserLiveSubmitError(
+  error: NormalizedPumpBrowserExecutionError,
+  packet: BrowserLiveSubmitPacket,
+): NormalizedPumpBrowserExecutionError {
+  return {
+    ...error,
+    message: redactKnownSensitiveText(error.message, packet),
+  };
+}
+
+function redactKnownSensitiveText(
+  value: string,
+  packet: BrowserLiveSubmitPacket,
+) {
+  const withoutKnownValues = packetSensitiveValues(packet).reduce(
+    (current, sensitiveValue) => current.split(sensitiveValue).join("[redacted]"),
+    value,
+  );
+
+  return withoutKnownValues.replace(
+    PRIVATE_KEY_FIELD_LABEL_PATTERN,
+    "[redacted-field]",
+  );
+}
+
+function packetSensitiveValues(packet: BrowserLiveSubmitPacket) {
+  const values =
+    packet.kind === "bundle_launch"
+      ? [
+          packet.executorInput.metadata.description,
+          ...packet.executorInput.buyers.map((buyer) => buyer.pk),
+        ]
+      : packet.executorInput.privKeys;
+
+  return values.filter((value) => value.trim().length > 0);
 }
 
 function blocked(reason: string): BrowserLiveSubmitReadiness {

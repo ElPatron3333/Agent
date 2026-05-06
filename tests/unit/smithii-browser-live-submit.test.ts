@@ -1,4 +1,4 @@
-﻿import { Keypair, PublicKey } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -115,6 +115,47 @@ describe("Smithii browser live submit", () => {
     expect(JSON.stringify(result)).not.toMatch(secretLabelPattern);
   });
 
+
+  it("blocks when the connected signer does not match the packet plan wallet", () => {
+    expect(
+      browserLiveSubmitReadiness({
+        packet: launchPacket(),
+        signer: signer("DifferentWallet111"),
+        approval: true,
+        env: validEnv,
+      }),
+    ).toEqual({
+      status: "blocked",
+      reason:
+        "Connected browser wallet DifferentWallet111 does not match browser execution plan wallet Wallet111.",
+    });
+  });
+
+  it("redacts packet secrets and private-key labels from live submit error messages", async () => {
+    const result = await executeBrowserLiveSubmit({
+      packet: swapPacket(),
+      signer: signer(),
+      approval: true,
+      env: validEnv,
+      clientFactory: () =>
+        pumpClient({
+          bundleSellBuy: async () => {
+            throw new Error("privKeys SECRET_SWAP_PK privateKey failed");
+          },
+        }),
+      now: new Date("2026-05-06T10:00:00.000Z"),
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      error: {
+        category: "unknown",
+        message: "[redacted-field] [redacted] [redacted-field] failed",
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(secretValuePattern);
+    expect(JSON.stringify(result)).not.toMatch(secretLabelPattern);
+  });
   it("returns normalized sanitized errors from executor failures", async () => {
     const result = await executeBrowserLiveSubmit({
       packet: swapPacket(),
@@ -145,9 +186,9 @@ describe("Smithii browser live submit", () => {
   });
 });
 
-function signer(): BrowserWalletSigner {
+function signer(publicKey = "Wallet111"): BrowserWalletSigner {
   return {
-    publicKey: { toBase58: () => "Wallet111" },
+    publicKey: { toBase58: () => publicKey },
     signTransaction: async (tx) => tx,
     signAllTransactions: async (txs) => txs,
   };
