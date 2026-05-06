@@ -57,6 +57,11 @@ describe("Smithii browser handoff UI model", () => {
         "Browser-held participating wallet material",
         "Per-wallet amounts",
       ],
+      preparation: {
+        kind: "bundle_swap",
+        actionLabel: "Prepare browser swap packet",
+        blockedLabel: "Browser swap packet unavailable",
+      },
     });
     expect(JSON.stringify(model)).not.toMatch(secretLabelPattern);
   });
@@ -74,6 +79,11 @@ describe("Smithii browser handoff UI model", () => {
       planId: "plan_bundle_swap_sol_to_token_2_abc",
       sdkMethod: "PumpFunClient.bundleSellBuy",
       disabledActionLabel: "Browser handoff not wired",
+      preparation: {
+        kind: "bundle_swap",
+        actionLabel: "Prepare browser swap packet",
+        blockedLabel: "Browser swap packet unavailable",
+      },
     });
     expect(JSON.stringify(model)).not.toMatch(secretLabelPattern);
   });

@@ -8,6 +8,11 @@ export type BrowserHandoffUiModel = {
   sdkMethod: string;
   disabledActionLabel: "Browser handoff not wired";
   requiredMaterials: string[];
+  preparation?: {
+    kind: "bundle_swap";
+    actionLabel: "Prepare browser swap packet";
+    blockedLabel: "Browser swap packet unavailable";
+  };
 };
 
 export type BrowserHandoffUiInput = {
@@ -18,6 +23,11 @@ export type BrowserHandoffUiInput = {
 
 const HANDOFF_STATUS = "Ready for browser handoff setup" as const;
 const DISABLED_ACTION_LABEL = "Browser handoff not wired" as const;
+const BUNDLE_SWAP_PREPARATION = {
+  kind: "bundle_swap",
+  actionLabel: "Prepare browser swap packet",
+  blockedLabel: "Browser swap packet unavailable",
+} as const;
 
 export function browserHandoffUiModel({
   activePreview,
@@ -66,6 +76,7 @@ export function browserHandoffUiModel({
         "Browser-held participating wallet material",
         "Per-wallet amounts",
       ],
+      preparation: BUNDLE_SWAP_PREPARATION,
     };
   }
 
