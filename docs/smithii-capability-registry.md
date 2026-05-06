@@ -21,14 +21,14 @@ The registry is intentionally descriptive. It does not import Smithii SDK client
 - Backend-keyed flows remain blocked unless Smithii provides a zero-custody alternative.
 - Runtime values, Jito UUIDs, private keys, burner wallet paths, launch images, and live-test artifacts stay out of the registry.
 
-## Technical Near-Reuse Candidates
+## Technical Near-Reuse Candidates, Not Roadmap
 
-After Pump live acceptance passes, the registry marks these as the closest technical reuse candidates because their SDK shape resembles existing Pump launch/swap work:
+This is not a product-priority decision. The next product tool should be chosen through `docs/smithii-next-tools-question-pack.md`; Maker/Taker may be next only if Smithii maps it to an available zero-custody SDK/API path.
+
+After Pump live acceptance passes, the registry marks these only as the closest technical reuse candidates because their SDK shape resembles existing Pump launch/swap work:
 
 1. PumpSwap graduated-token Bundle Swap
 2. Bonk / LetsBonk Launch Bundle
 3. Raydium LaunchLab Launch Bundle
-
-This is not a product-priority decision. The next product tool should be chosen through `docs/smithii-next-tools-question-pack.md`; Maker/Taker may be next if Smithii maps it to an available zero-custody SDK/API path.
 
 Each tool still requires the onboarding template and a focused implementation spec before any code path is enabled.

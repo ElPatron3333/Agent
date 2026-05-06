@@ -3,6 +3,8 @@
 Date: 2026-05-06
 Status: ready to send
 Related registry: `src/lib/smithii/capability-registry.ts`
+Related readiness matrix: `docs/future-smithii-tool-readiness-matrix.md`
+Related registry docs: `docs/smithii-capability-registry.md`
 Related onboarding template: `docs/smithii-tool-onboarding-template.md`
 
 ## Goal
@@ -46,7 +48,7 @@ If a different Smithii tool is a better next fit, please add it.
 
 ## 2. Maker/Taker Bot / Market Maker
 
-This is probably the next product direction, but we do not know the exact Smithii product mapping.
+Maker/Taker is the likely internal next direction, but it is unconfirmed until Smithii maps it to an available SDK/API and custody model.
 
 1. Is Smithii's Maker/Taker Bot the same product as `@smithii/sdk/market-maker` `MarketMakerClient.deposit`, or a different product/API?
 2. If it is different, what is the exact package, subpath import, client constructor, method names, or HTTP endpoint set?

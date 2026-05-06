@@ -391,14 +391,8 @@ export function listSmithiiCapabilities(): SmithiiCapability[] {
 
 export function getSmithiiCapability(
   id: SmithiiCapabilityId,
-): SmithiiCapability | undefined {
+): SmithiiCapability {
   return SMITHII_CAPABILITY_REGISTRY[id];
-}
-
-export function listSmithiiCapabilitiesByStatus(
-  status: SmithiiCapabilityStatus,
-): SmithiiCapability[] {
-  return listSmithiiCapabilities().filter((capability) => capability.status === status);
 }
 
 export function listSmithiiNextCapabilityCandidates(): SmithiiCapability[] {

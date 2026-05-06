@@ -16,7 +16,7 @@ This document does not authorize implementation. A tool moves into build scope o
 | Status | Meaning | Implementation rule |
 |---|---|---|
 | `implemented-awaiting-live-acceptance` | Built in this repo, but not yet accepted on mainnet. | Do not start beta until live acceptance passes. |
-| `near-reuse-after-pump-live` | SDK contract is close to current Pump browser flow. | Start only after Pump live acceptance proves runtime assumptions. |
+| `near-reuse-after-pump-live` | SDK contract is close to current Pump browser flow. | Evaluate only after Pump live acceptance, a completed onboarding note, and product-priority selection. |
 | `contract-known-needs-spec` | SDK surface is documented enough for a design/spec, but not enough to wire live execution yet. | Create a spec and focused Smithii question packet before coding. |
 | `needs-smithii-answer` | No verified SDK/client contract in current local docs. | Ask Smithii before any implementation. |
 | `blocked-custody` | Current known path sends private keys to a backend or requires backend custody. | Keep blocked unless Smithii provides a zero-custody alternative. |
@@ -73,16 +73,15 @@ This document does not authorize implementation. A tool moves into build scope o
 | SMAC + cleanup-orchestrator process | All phases | One scoped audit per new tool phase before merge/live acceptance. |
 | Low-amount live runbook pattern | Live-eligible tools | Each tool needs a separate acceptance runbook or section with pass/fail criteria. |
 
-## Technical Reuse Order After Pump Live Acceptance
+## Technical Reuse Notes, Not Roadmap
 
-This order reflects implementation similarity, not product priority. Product priority should be chosen through `docs/smithii-next-tools-question-pack.md`, especially if Maker/Taker is the preferred next product.
+This section is not a product roadmap. Choose the next product through `docs/smithii-next-tools-question-pack.md`; Maker/Taker needs exact SDK/API mapping before it can become build scope. The notes below describe implementation similarity only after Pump live acceptance.
 
 1. PumpSwap graduated-token Bundle Swap: closest to existing Bundle Swap path.
 2. Bonk or LaunchLab launch bundle: closest to existing Bundle Launch path, but needs metadata URI handling.
 3. Moonit launch/swap: similar bundler concept, but metadata and direction semantics differ.
 4. Market Maker or Anti-MEV single: only after custody/refund/status lifecycle is fully answered.
 5. Mantis or broader token-management tools: separate product surfaces after launchpad/bundler expansion is stable.
-6. Product-priority next tool: use `docs/smithii-next-tools-question-pack.md` to let Smithii rank the next available zero-custody tools; Maker/Taker needs exact SDK/client mapping first.
 
 ## Questions To Ask Before A New Tool Leaves Planning
 

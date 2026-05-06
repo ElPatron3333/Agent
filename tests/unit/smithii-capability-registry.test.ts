@@ -55,7 +55,7 @@ describe("Smithii capability registry", () => {
       currentAgentSupport: "blocked",
       zeroCustody: "blocked-backend-keyed",
     });
-    expect(getSmithiiCapability("classic_volume_bot")?.blockers).toContain(
+    expect(getSmithiiCapability("classic_volume_bot").blockers).toContain(
       "Classic Volume Bot is backend-keyed and cannot satisfy the zero-custody requirement.",
     );
 

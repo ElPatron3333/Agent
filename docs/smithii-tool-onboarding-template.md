@@ -225,9 +225,10 @@ We need these exact details:
 
 Before coding:
 
+- Proposed decision is `ready-for-spec`; `questions-needed`, `mock-only`, `blocked-custody`, and `deferred` do not unlock implementation.
 - Candidate row exists or is updated in `docs/future-smithii-tool-readiness-matrix.md`.
-- Custody decision is not `questions-needed`.
-- Runtime config decision is not `questions-needed`.
+- Custody decision confirms zero-custody browser/user-wallet execution.
+- Runtime config decision is answered and has no missing execute-time config.
 - Result/error contract is answered enough for user messages and audit fields.
 - Acceptance path is answered.
 - Unsupported options are listed and blocked.
