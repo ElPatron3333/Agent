@@ -2,7 +2,7 @@
 
 Version: 2.0
 Date: 2026-05-06
-Status: Phase 8 browser handoff is implemented for Pump Bundle Launch and supported Pump Bundle Swap. Live acceptance is pending runtime config, burner materials, and low-amount mainnet execution. Future Smithii tools are waiting on Smithii answers before any implementation.
+Status: Phase 8 browser handoff is implemented for Pump Bundle Launch and supported Pump Bundle Swap. Smithii runtime answers for live acceptance have been received; live acceptance is pending local env setup, burner materials, and low-amount mainnet execution. Future Smithii tools are waiting on Smithii answers before any implementation.
 
 ---
 
@@ -124,13 +124,16 @@ NEXT_PUBLIC_SMITHII_JITO_UUID=
 SMITHII_PLAN_SIGNING_SECRET=
 ```
 
-Current known blocker from the runtime request packet:
+Smithii resolved the previous missing-Jito blocker for the internal acceptance pass. The exact Jito UUID must stay in the local ignored env file, not in tracked docs.
 
-```text
-Missing env: NEXT_PUBLIC_SMITHII_JITO_UUID
-```
+For the acceptance pass, Smithii confirmed:
 
-Smithii still needs to confirm that the Jito UUID is intended to be browser-public and that `NEXT_PUBLIC_SMITHII_PROXY_URL=https://tools.smithii.io` is the correct proxy/base URL for Pump metadata upload, bundle swap, and create-and-snipe.
+- The current browser SDK pattern exposes the Jito UUID as a public runtime value.
+- External/third-party integrations must use their own Jito UUID; do not reuse the acceptance UUID as a shared public credential.
+- `NEXT_PUBLIC_SMITHII_PROXY_URL=https://proxy-production-708c.up.railway.app`
+- No proxy path suffix should be added; the SDK appends required routes internally.
+
+Before partner/customer rollout, still confirm whether production UUIDs are isolated, domain-bound, rate-limited, and independently rotatable.
 
 ### Required local materials
 
@@ -164,10 +167,9 @@ Pass criteria are defined in `docs/phase8-live-acceptance-runbook.md`.
 
 ### Blocking Phase 8 live acceptance
 
-1. Smithii Jito UUID and confirmation that it can be exposed as `NEXT_PUBLIC_SMITHII_JITO_UUID`.
-2. Smithii proxy/base URL confirmation.
-3. Operator-provided burner wallet materials and approved low-risk target mint/image.
-4. Manual low-amount mainnet execution and result recording.
+1. Configure the local ignored env file with the Smithii-provided acceptance Jito UUID and confirmed proxy URL.
+2. Operator-provided burner wallet materials and approved low-risk target mint/image.
+3. Manual low-amount mainnet execution and result recording.
 
 ### Blocking closed beta
 

@@ -3,7 +3,7 @@
 Date: 2026-05-06
 Branch: `main`
 Commit baseline: `1cf6ebeed08ebad5fc89462a0d41cd5247f1684c`
-Status: blocked before live execution
+Status: blocked before live execution; superseded by later Smithii runtime response for the next attempt
 
 ## Scope
 
@@ -36,6 +36,8 @@ Configured locally:
 Still intentionally unset locally:
 
 - `NEXT_PUBLIC_SMITHII_JITO_UUID`
+
+Follow-up note: Smithii later confirmed that the next acceptance attempt should use `NEXT_PUBLIC_SMITHII_PROXY_URL=https://proxy-production-708c.up.railway.app` and a provided acceptance Jito UUID stored only in local ignored env. This original attempt remains a historical blocked dry run.
 
 ## Preflight Command
 
@@ -78,6 +80,7 @@ The browser-only live-eligible flows remain implementation-ready but unaccepted 
 Phase 8 can be closed after all of the following are completed on `main`:
 
 - set `NEXT_PUBLIC_SMITHII_JITO_UUID` in the local non-checked-in env file
+- update `NEXT_PUBLIC_SMITHII_PROXY_URL` in the local non-checked-in env file to Smithii's confirmed proxy URL
 - provide a real burner buyer-wallet CSV outside the repo or in a git-ignored local path
 - provide a real launch image file
 - provide an explicitly approved low-risk Pump swap target mint

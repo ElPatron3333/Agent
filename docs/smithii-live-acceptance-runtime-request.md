@@ -1,8 +1,25 @@
 # Smithii Live Acceptance Runtime Request
 
+Status: answered by Smithii for the internal Phase 8 acceptance pass. The exact Jito UUID is intentionally not committed to this repo; keep it in local ignored env only.
+
 We have already integrated the public `@smithii/sdk/pump` path for the browser-only Pump flows and are ready to run the first low-amount mainnet acceptance pass.
 
 This is not a repeat of the full integration questionnaire. We only need the runtime value(s) and confirmations below to start the live acceptance run.
+
+## Response Summary
+
+Smithii confirmed the current public `@smithii/sdk/pump` browser pattern for this acceptance pass:
+
+- A Jito UUID was provided for the internal acceptance run and can be used as `NEXT_PUBLIC_SMITHII_JITO_UUID` for this pass.
+- External SDK users and third-party integrations must provide their own Jito UUID. Do not reuse the acceptance UUID as a shared public SDK credential.
+- Use `NEXT_PUBLIC_SMITHII_PROXY_URL=https://proxy-production-708c.up.railway.app`.
+- Do not add a proxy path suffix; the SDK appends routes internally.
+- Do not use `https://tools.smithii.io` as the SDK proxy URL for this acceptance pass.
+- The first Bundle Swap target should be Smithii-controlled or explicitly approved locally, not an arbitrary third-party Pump token.
+- Bundle Swap buy amount of `0.01` to `0.02` SOL is reasonable.
+- Bundle Launch should use `0.01` SOL with one burner buyer wallet for the first acceptance pass.
+
+Operational details still worth confirming before partner/customer rollout: whether production UUIDs are isolated per integration, domain-bound, rate-limited, and independently rotatable.
 
 ## Required From Smithii
 
@@ -36,19 +53,19 @@ Please confirm:
 
 ### 2. Confirm the Smithii proxy URL
 
-We currently plan to use:
+Smithii confirmed this proxy URL for the acceptance pass:
 
 ```env
-NEXT_PUBLIC_SMITHII_PROXY_URL=https://tools.smithii.io
+NEXT_PUBLIC_SMITHII_PROXY_URL=https://proxy-production-708c.up.railway.app
 ```
 
-Please confirm this is the correct proxy/base URL for:
+This is the correct proxy/base URL for:
 
 - `PumpFunClient.uploadMetadata(...)`
 - `PumpFunClient.bundleSellBuy(...)`
 - `PumpFunClient.createAndSnipeToken(...)`
 
-Please also confirm whether the URL needs any path suffix or if `https://tools.smithii.io` is enough.
+No path suffix should be added by the integrator. The SDK appends required routes internally.
 
 ## Helpful But Optional
 
@@ -63,7 +80,7 @@ If not, we will use a Pump token we control or explicitly approve locally.
 Please confirm whether these first-run amounts are reasonable:
 
 - Bundle Swap buy: `0.01` to `0.02` SOL with one burner bundle wallet
-- Bundle Launch buyer amount: `0.005` to `0.01` SOL with one burner buyer wallet
+- Bundle Launch buyer amount: `0.01` SOL with one burner buyer wallet
 
 If there are lower bounds where Jito/Smithii/Pump execution becomes unreliable, please tell us the minimum practical values.
 
@@ -79,12 +96,12 @@ We will provide locally:
 - the approved low-risk swap mint if Smithii does not provide one
 - browser wallet approval for the live run
 
-## Current Blocker
+## Previous Blocker
 
-Our current preflight is blocked on:
+The previous preflight was blocked on:
 
 ```text
 Missing env: NEXT_PUBLIC_SMITHII_JITO_UUID
 ```
 
-Once we have that value, we can run the local preflight again and proceed with the low-amount mainnet acceptance run.
+Smithii has now provided the value for the internal acceptance pass. Configure it in local ignored env before rerunning preflight; do not commit the exact UUID.

@@ -1,7 +1,7 @@
 # Phase 8 Low-Amount Mainnet Acceptance Runbook
 
 Date: 2026-05-06
-Status: ready for manual execution once runtime config and burner materials exist
+Status: ready for manual execution once local env config and burner materials exist
 Owner: local operator with browser wallet approval
 
 ## Goal
@@ -34,8 +34,8 @@ Those flows remain blocked by the current Smithii contract.
 Set these before starting the app:
 
 - `NEXT_PUBLIC_SOLANA_RPC_URL`
-- `NEXT_PUBLIC_SMITHII_PROXY_URL`
-- `NEXT_PUBLIC_SMITHII_JITO_UUID`
+- `NEXT_PUBLIC_SMITHII_PROXY_URL=https://proxy-production-708c.up.railway.app`
+- `NEXT_PUBLIC_SMITHII_JITO_UUID` from the Smithii acceptance response; keep the exact value only in local ignored env
 - `SMITHII_PLAN_SIGNING_SECRET`
 
 `.env.example` already contains the required keys. Create a local env file outside git tracking before the test run. The preflight loads process env plus local `.env.local` and `.env` files from the repo root.
@@ -45,7 +45,7 @@ Set these before starting the app:
 - A burner connected wallet in Phantom or Solflare for the dev/fee wallet.
 - A burner buyer wallet CSV with a `privateKey` column and at least one real burner private-key row for the secondary bundle wallet import.
 - Store the real burner wallet CSV outside the repo or in a git-ignored local path such as `.smithii-local/`; never replace `docs/examples/phase8-burner-wallets.sample.csv` with real keys.
-- A live Pump token mint for the swap test that you control or explicitly approve for low-amount testing.
+- A live Pump token mint for the swap test that Smithii controls or that you explicitly approve for low-amount testing. Do not use an arbitrary third-party Pump token for the first acceptance run.
 - A launch image file in `.png`, `.jpg`, or `.jpeg` format for the launch test.
 - Burner wallet balances sufficient for fees plus tiny test sizes.
 
@@ -117,10 +117,16 @@ Suggested parameters:
 
 - one burner dev wallet connected in Phantom/Solflare
 - one burner buyer wallet imported from CSV
-- one low buy amount such as `0.005` to `0.01` SOL
+- one low buy amount of `0.01` SOL
 - no pregenerated token address
 - cashback off
 - socials off unless specifically needed for the test
+
+Amount notes from Smithii:
+
+- Bundle Swap buy: `0.01` to `0.02` SOL with one burner bundle wallet is reasonable.
+- Bundle Launch buyer amount: use `0.01` SOL for the first acceptance pass.
+- Account for Jito tip, Smithii Pump service fee, and any pregenerated/vanity mint fee path.
 
 Steps:
 
