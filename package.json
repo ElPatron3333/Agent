@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "phase8:live-preflight": "node scripts/phase8-live-preflight.mjs"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.30.1",
