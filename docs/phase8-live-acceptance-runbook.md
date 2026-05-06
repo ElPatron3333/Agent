@@ -38,12 +38,13 @@ Set these before starting the app:
 - `NEXT_PUBLIC_SMITHII_JITO_UUID`
 - `SMITHII_PLAN_SIGNING_SECRET`
 
-`.env.example` already contains the required keys. Create a local env file outside git tracking before the test run.
+`.env.example` already contains the required keys. Create a local env file outside git tracking before the test run. The preflight loads process env plus local `.env.local` and `.env` files from the repo root.
 
 ## Required Manual Materials
 
 - A burner connected wallet in Phantom or Solflare for the dev/fee wallet.
-- A burner buyer wallet CSV with a single `privateKey` header and at least one real burner private-key row for the secondary bundle wallet import.
+- A burner buyer wallet CSV with a `privateKey` column and at least one real burner private-key row for the secondary bundle wallet import.
+- Store the real burner wallet CSV outside the repo or in a git-ignored local path such as `.smithii-local/`; never replace `docs/examples/phase8-burner-wallets.sample.csv` with real keys.
 - A live Pump token mint for the swap test that you control or explicitly approve for low-amount testing.
 - A launch image file in `.png`, `.jpg`, or `.jpeg` format for the launch test.
 - Burner wallet balances sufficient for fees plus tiny test sizes.
@@ -53,17 +54,18 @@ Set these before starting the app:
 Run this from `D:\smithii-agent` before starting the app:
 
 ```text
-pnpm phase8:live-preflight -- --wallet-csv <abs-path-to-burner-wallets.csv> --swap-mint <pump-token-mint> --launch-image <abs-path-to-launch-image.png>
+pnpm phase8:live-preflight -- --wallet-csv <abs-path-to-burner-wallets.csv> --swap-mint <approved-low-risk-pump-token-mint> --launch-image <abs-path-to-launch-image.png>
 ```
 
 The preflight checks:
 
-- required env vars are set
-- wallet CSV exists and starts with `privateKey`
-- swap mint argument is present
+- required env vars are set through process env, `.env.local`, or `.env`
+- wallet CSV exists outside tracked repo paths or inside a git-ignored local path
+- wallet CSV has a `privateKey` column and at least one non-placeholder base58-shaped private-key row
+- swap mint argument is present and parses as a Solana public key
 - launch image exists with a supported extension
 
-The preflight does not inspect wallet balances or browser extensions. Those remain manual checks.
+The preflight does not inspect wallet balances, browser extensions, Pump.fun pool eligibility, operator approval of the target mint, or metadata upload success. Those remain manual checks.
 
 ## Execution Order
 
@@ -105,6 +107,8 @@ Pass criteria:
 
 Run only after the swap test path succeeds.
 
+Smithii recommends testing metadata upload before launch execution. The current app does not expose a standalone upload-only command; the browser launch executor calls `uploadMetadata` before `createAndSnipeToken`. If metadata upload fails before transaction creation or wallet approval, stop and record it as a pre-transaction blocker.
+
 Current implementation note:
 
 - The launch preparation helper currently requires at least one bundle buyer wallet. Use one buyer for the first live test even though Smithii said one or zero buyers can be valid at the SDK level.
@@ -126,12 +130,14 @@ Steps:
 4. Prepare the browser packet.
 5. Tick explicit live submit approval.
 6. Submit live launch via Smithii and approve the wallet signature.
-7. Record the returned mint, create tx signature, buyer tx count, bundle count, and payment signature.
-8. Verify the create tx signature and mint on chain.
+7. Record whether metadata upload completed before transaction submission.
+8. Record the returned mint, create tx signature, buyer tx count, bundle count, and payment signature.
+9. Verify the create tx signature and mint on chain.
 
 Pass criteria:
 
 - UI stays on the browser-only live path.
+- Metadata upload completes before transaction submission.
 - Returned result contains non-secret fields only.
 - Create tx signature confirms on chain.
 - Mint matches the UI result.
@@ -144,6 +150,7 @@ Stop the run and record the exact failure if any of these happen:
 - wrong connected wallet is accepted for the prepared plan
 - backend receives or reflects private-key-shaped data
 - unsupported flow becomes live-submittable
+- metadata upload fails before transaction creation
 - tx submission fails with a secret-bearing message in UI
 - wallet prompt or explorer result contradicts the returned plan/result fields
 
@@ -157,6 +164,7 @@ Capture these artifacts for each attempt:
 - target mint or new mint
 - connected wallet pubkey
 - returned plan ID and idempotency key
+- metadata upload result for Bundle Launch
 - returned tx signatures and bundle IDs
 - explorer confirmation result
 - pass or fail
@@ -168,7 +176,7 @@ Phase 8 can be treated as complete for the live-eligible flows only if:
 
 - preflight passes with real runtime config and burner materials
 - Bundle Swap live acceptance passes
-- Bundle Launch live acceptance passes
+- Bundle Launch live acceptance passes, including metadata upload before transaction submission
 - unsupported flows remain blocked
 - no secret-bearing UI or backend regression is observed
 

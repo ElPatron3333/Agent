@@ -43,6 +43,8 @@ Still intentionally unset locally:
 pnpm phase8:live-preflight -- --wallet-csv D:\smithii-agent\docs\examples\phase8-burner-wallets.sample.csv --swap-mint So11111111111111111111111111111111111111112 --launch-image D:\smithii-agent\missing-launch-image.png
 ```
 
+The `So11111111111111111111111111111111111111112` value was part of a blocked dry-run shape check. It is not an approved Pump target mint for live acceptance.
+
 ## Preflight Result
 
 ```text
@@ -51,6 +53,7 @@ Repo: D:\smithii-agent
 Runbook: docs/phase8-live-acceptance-runbook.md
 Status: BLOCKED
 - Missing env: NEXT_PUBLIC_SMITHII_JITO_UUID
+- Wallet CSV with private keys must be outside the repo or inside a git-ignored local path: D:\smithii-agent\docs\examples\phase8-burner-wallets.sample.csv
 - Wallet CSV still contains placeholder values: D:\smithii-agent\docs\examples\phase8-burner-wallets.sample.csv
 - Launch image not found: D:\smithii-agent\missing-launch-image.png
 ```
@@ -75,9 +78,9 @@ The browser-only live-eligible flows remain implementation-ready but unaccepted 
 Phase 8 can be closed after all of the following are completed on `main`:
 
 - set `NEXT_PUBLIC_SMITHII_JITO_UUID` in the local non-checked-in env file
-- provide a real burner buyer-wallet CSV
+- provide a real burner buyer-wallet CSV outside the repo or in a git-ignored local path
 - provide a real launch image file
 - provide an explicitly approved low-risk Pump swap target mint
 - execute Bundle Swap live acceptance successfully
-- execute Bundle Launch live acceptance successfully
+- execute Bundle Launch live acceptance successfully, including metadata upload before transaction submission
 - confirm no secret-bearing data appears in UI or backend responses
