@@ -109,6 +109,9 @@ export type ActivePreview =
       kind: "bundle_launch";
       planId: string;
       token: string;
+      tokenName: string;
+      tokenSymbol: string;
+      description: string;
       totalBuysSol: number;
       serviceFeeSol: number;
       devWalletFeesSol: number;
@@ -934,6 +937,9 @@ function prepareLaunchPreview(
       kind: "bundle_launch",
       planId: plan.planId,
       token: `${draft.data.tokenName} / ${draft.data.symbol}`,
+      tokenName: draft.data.tokenName,
+      tokenSymbol: draft.data.symbol,
+      description: draft.data.description,
       totalBuysSol: plan.preview.totalBuysSol,
       serviceFeeSol: plan.preview.smithiiServiceFeeSol,
       devWalletFeesSol: plan.preview.feesFromDevWalletSol,
