@@ -2,6 +2,7 @@
 
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
+import { Keypair } from "@solana/web3.js";
 
 import type {
   ActivePreview,
@@ -27,6 +28,11 @@ import {
   browserHandoffUiModel,
   type BrowserHandoffUiModel,
 } from "@/lib/smithii/browser-handoff-ui";
+import {
+  bundleLaunchBrowserExecutionSummary,
+  prepareBundleLaunchBrowserExecution,
+  type BundleLaunchBrowserExecutionSummary,
+} from "@/lib/smithii/bundle-launch-browser-wiring";
 import {
   bundleSwapBrowserExecutionSummary,
   prepareBundleSwapBrowserExecution,
@@ -61,17 +67,35 @@ const initialMessages: ChatMessage[] = [
 
 type BundleSwapPreviewState = Extract<ActivePreview, { kind: "bundle_swap" }>;
 
+type BundleLaunchPreparationState =
+  | {
+      kind: "bundle_launch";
+      status: "ready";
+      scopeKey: string;
+      summary: BundleLaunchBrowserExecutionSummary;
+    }
+  | {
+      kind: "bundle_launch";
+      status: "blocked";
+      scopeKey: string;
+      reason: string;
+    };
+
 type BundleSwapPreparationState =
   | {
+      kind: "bundle_swap";
       status: "ready";
       scopeKey: string;
       summary: BundleSwapBrowserExecutionSummary;
     }
   | {
+      kind: "bundle_swap";
       status: "blocked";
       scopeKey: string;
       reason: string;
     };
+
+type BrowserPreparationState = BundleLaunchPreparationState | BundleSwapPreparationState;
 
 const defaultPreview: ActivePreview = {
   kind: "bundle_launch",
@@ -127,6 +151,12 @@ export function SmithiiAgentApp() {
   const [auditLog, setAuditLog] = useState<AuditLogRecord[]>([]);
   const [walletImportStatus, setWalletImportStatus] =
     useState("Private keys stay in browser state.");
+  const [bundleLaunchPreparation, setBundleLaunchPreparation] =
+    useState<BundleLaunchPreparationState | null>(null);
+  const [bundleLaunchMetadataFile, setBundleLaunchMetadataFile] =
+    useState<{ scopeKey: string; file: File } | null>(null);
+  const [bundleLaunchMintKeypair, setBundleLaunchMintKeypair] =
+    useState<{ scopeKey: string; mintKeypair: Keypair } | null>(null);
   const [bundleSwapPreparation, setBundleSwapPreparation] =
     useState<BundleSwapPreparationState | null>(null);
   const [isSending, setIsSending] = useState(false);
@@ -142,16 +172,38 @@ export function SmithiiAgentApp() {
     pendingPlan,
     smithiiLive,
   });
+  const bundleLaunchPreparationScope = bundleLaunchPreparationScopeKey({
+    activePreview,
+    pendingPlan,
+    smithiiLive,
+    walletRoster,
+  });
   const bundleSwapPreparationScope = bundleSwapPreparationScopeKey({
     activePreview,
     pendingPlan,
     smithiiLive,
     walletRoster,
   });
+  const visibleBundleLaunchPreparation =
+    bundleLaunchPreparation?.scopeKey === bundleLaunchPreparationScope
+      ? bundleLaunchPreparation
+      : null;
+  const visibleBundleLaunchMetadataFile =
+    bundleLaunchMetadataFile?.scopeKey === bundleLaunchPreparationScope
+      ? bundleLaunchMetadataFile.file
+      : null;
+  const visibleBundleLaunchMintKeypair =
+    bundleLaunchMintKeypair?.scopeKey === bundleLaunchPreparationScope
+      ? bundleLaunchMintKeypair.mintKeypair
+      : null;
   const visibleBundleSwapPreparation =
     bundleSwapPreparation?.scopeKey === bundleSwapPreparationScope
       ? bundleSwapPreparation
       : null;
+  const visibleBrowserPreparation =
+    browserHandoff?.preparation?.kind === "bundle_launch"
+      ? visibleBundleLaunchPreparation
+      : visibleBundleSwapPreparation;
 
   useEffect(() => {
     void refreshAuditLog();
@@ -321,11 +373,55 @@ export function SmithiiAgentApp() {
     setLastSequenceConfig(snapshot);
   }
 
+  function selectBundleLaunchMetadataFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setBundleLaunchMetadataFile(
+      file ? { scopeKey: bundleLaunchPreparationScope, file } : null,
+    );
+    setBundleLaunchPreparation(null);
+  }
+
+  function prepareBundleLaunchBrowserPacket() {
+    const scopeKey = bundleLaunchPreparationScope;
+    const mintKeypair = visibleBundleLaunchMintKeypair ?? Keypair.generate();
+    if (!visibleBundleLaunchMintKeypair) {
+      setBundleLaunchMintKeypair({ scopeKey, mintKeypair });
+    }
+
+    const prepared = prepareBundleLaunchBrowserExecution({
+      activePreview,
+      pendingPlan,
+      smithiiLive,
+      walletRoster,
+      metadataFile: visibleBundleLaunchMetadataFile,
+      mintKeypair,
+      nonce: bundleLaunchPreparationNonce(pendingPlan),
+      now: new Date(),
+    });
+
+    if (prepared.status === "blocked") {
+      setBundleLaunchPreparation({
+        kind: "bundle_launch",
+        status: "blocked",
+        scopeKey,
+        reason: prepared.reason,
+      });
+      return;
+    }
+
+    setBundleLaunchPreparation({
+      kind: "bundle_launch",
+      status: "ready",
+      scopeKey,
+      summary: bundleLaunchBrowserExecutionSummary(prepared.packet),
+    });
+  }
   function prepareBundleSwapBrowserPacket() {
     const scopeKey = bundleSwapPreparationScope;
     const feeWalletPubkey = feeWalletPubkeyForRoster(walletRoster);
     if (!feeWalletPubkey) {
       setBundleSwapPreparation({
+        kind: "bundle_swap",
         status: "blocked",
         scopeKey,
         reason: "Connected fee wallet signer is missing.",
@@ -345,6 +441,7 @@ export function SmithiiAgentApp() {
 
     if (prepared.status === "blocked") {
       setBundleSwapPreparation({
+        kind: "bundle_swap",
         status: "blocked",
         scopeKey,
         reason: prepared.reason,
@@ -353,6 +450,7 @@ export function SmithiiAgentApp() {
     }
 
     setBundleSwapPreparation({
+      kind: "bundle_swap",
       status: "ready",
       scopeKey,
       summary: bundleSwapBrowserExecutionSummary(prepared.packet),
@@ -490,11 +588,15 @@ export function SmithiiAgentApp() {
                   {browserHandoff ? (
                     <BrowserHandoffPanel
                       model={browserHandoff}
-                      preparation={visibleBundleSwapPreparation}
+                      preparation={visibleBrowserPreparation}
+                      launchMetadataFileName={visibleBundleLaunchMetadataFile?.name ?? null}
+                      onLaunchMetadataFileChange={selectBundleLaunchMetadataFile}
                       onPrepare={
-                        browserHandoff.preparation
-                          ? prepareBundleSwapBrowserPacket
-                          : undefined
+                        browserHandoff.preparation?.kind === "bundle_launch"
+                          ? prepareBundleLaunchBrowserPacket
+                          : browserHandoff.preparation?.kind === "bundle_swap"
+                            ? prepareBundleSwapBrowserPacket
+                            : undefined
                       }
                     />
                   ) : null}
@@ -1146,13 +1248,18 @@ function PreviewPanel({ preview }: { preview: ActivePreview | null }) {
 function BrowserHandoffPanel({
   model,
   preparation,
+  launchMetadataFileName,
+  onLaunchMetadataFileChange,
   onPrepare,
 }: {
   model: BrowserHandoffUiModel;
-  preparation: BundleSwapPreparationState | null;
+  preparation: BrowserPreparationState | null;
+  launchMetadataFileName?: string | null;
+  onLaunchMetadataFileChange?: (event: ChangeEvent<HTMLInputElement>) => void;
   onPrepare?: () => void;
 }) {
   const canPrepare = Boolean(model.preparation && onPrepare);
+  const isLaunchPreparation = model.preparation?.kind === "bundle_launch";
 
   return (
     <div className="mt-4 rounded-md border border-emerald-900/80 bg-emerald-950/20 p-3">
@@ -1168,7 +1275,23 @@ function BrowserHandoffPanel({
           ))}
         </ul>
       </div>
-      {preparation ? <BundleSwapPreparationStatus preparation={preparation} /> : null}
+      {isLaunchPreparation ? (
+        <label className="mt-3 block rounded-md border border-emerald-900/80 p-3 text-sm text-slate-300">
+          <span className="block text-xs uppercase text-slate-500">
+            Metadata image
+          </span>
+          <input
+            className="mt-2 block w-full text-sm text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-emerald-400 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-950"
+            type="file"
+            accept="image/*"
+            onChange={onLaunchMetadataFileChange}
+          />
+          <span className="mt-2 block text-xs text-slate-500">
+            {launchMetadataFileName ?? "No image selected"}
+          </span>
+        </label>
+      ) : null}
+      {preparation ? <BrowserPreparationStatus preparation={preparation} /> : null}
       <button
         className={`mt-3 h-9 w-full rounded-md border px-3 text-sm font-semibold ${
           canPrepare
@@ -1185,16 +1308,46 @@ function BrowserHandoffPanel({
   );
 }
 
-function BundleSwapPreparationStatus({
+function BrowserPreparationStatus({
   preparation,
 }: {
-  preparation: BundleSwapPreparationState;
+  preparation: BrowserPreparationState;
 }) {
   if (preparation.status === "blocked") {
+    const label =
+      preparation.kind === "bundle_launch"
+        ? "Browser launch packet unavailable"
+        : "Browser swap packet unavailable";
+
     return (
       <p className="mt-3 rounded-md border border-amber-800/80 p-3 text-sm text-amber-100">
-        Browser swap packet unavailable: {preparation.reason}
+        {label}: {preparation.reason}
       </p>
+    );
+  }
+
+  if (preparation.kind === "bundle_launch") {
+    const { summary } = preparation;
+
+    return (
+      <div className="mt-3 rounded-md border border-emerald-800/80 p-3 text-sm text-slate-300">
+        <PreviewRow label="Packet" value={summary.status} />
+        <PreviewRow label="Flow" value={summary.flow} />
+        <PreviewRow label="Plan" value={summary.planId} />
+        <PreviewRow label="Idempotency" value={summary.idempotencyKey} />
+        <PreviewRow label="Mint" value={summary.mint} />
+        <PreviewRow label="Dev amount" value={`${summary.devAmount} SOL`} />
+        <PreviewRow label="Buyers" value={String(summary.buyerCount)} />
+        <PreviewRow label="Fees" value={summary.expectedFeesLamports} />
+        <PreviewRow
+          label="Pregenerate"
+          value={summary.isTokenPregenerated ? "Yes" : "No"}
+        />
+        <PreviewRow
+          label="Cashback"
+          value={summary.isCashbackCoin ? "Yes" : "No"}
+        />
+      </div>
     );
   }
 
@@ -1384,6 +1537,14 @@ function draftSummary(draft: Draft | null) {
   return "Ready for preview";
 }
 
+function bundleLaunchPreparationScopeKey(input: {
+  activePreview: ActivePreview | null;
+  pendingPlan: PendingPlan | null;
+  smithiiLive: SmithiiLiveBoundary | null;
+  walletRoster: BrowserWalletEntry[];
+}) {
+  return bundleSwapPreparationScopeKey(input);
+}
 function bundleSwapPreparationScopeKey({
   activePreview,
   pendingPlan,
@@ -1421,6 +1582,11 @@ function feeWalletPubkeyForRoster(walletRoster: BrowserWalletEntry[]) {
   return walletRoster.find((wallet) => wallet.role === "dev")?.pubkey ?? null;
 }
 
+function bundleLaunchPreparationNonce(pendingPlan: PendingPlan | null) {
+  return pendingPlan
+    ? `bundle-launch-browser-${pendingPlan.id}-${pendingPlan.createdAt}`
+    : "bundle-launch-browser-no-plan";
+}
 function bundleSwapPreparationNonce(pendingPlan: PendingPlan | null) {
   return pendingPlan
     ? `bundle-swap-browser-${pendingPlan.id}-${pendingPlan.createdAt}`

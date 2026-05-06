@@ -4,7 +4,23 @@ import { describe, expect, it } from "vitest";
 
 const source = () => readFileSync("src/components/smithii-agent-app.tsx", "utf8");
 
-describe("Smithii Agent App browser swap packet preparation wiring", () => {
+describe("Smithii Agent App browser packet preparation wiring", () => {
+
+  it("renders Bundle Launch packet preparation without importing the Pump executor", () => {
+    const appSource = source();
+
+    expect(appSource).toContain("prepareBundleLaunchBrowserExecution");
+    expect(appSource).toContain("bundleLaunchBrowserExecutionSummary");
+    expect(appSource).toContain("Keypair");
+    expect(appSource).toContain("accept=\"image/*\"");
+    expect(appSource).toContain("setBundleLaunchMetadataFile");
+    expect(appSource).toContain("summary.mint");
+    expect(appSource).toContain("summary.devAmount");
+    expect(appSource).toContain("summary.buyerCount");
+    expect(appSource).toContain("summary.isTokenPregenerated");
+    expect(appSource).toContain("summary.isCashbackCoin");
+    expect(appSource).not.toContain("pump-browser-executor");
+  });
   it("renders Bundle Swap packet preparation without importing the Pump executor", () => {
     const appSource = source();
 
