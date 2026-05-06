@@ -34,6 +34,11 @@ describe("Smithii browser handoff UI model", () => {
         "Connected dev wallet signer",
         "Browser-held bundle wallet material",
       ],
+      preparation: {
+        kind: "bundle_launch",
+        actionLabel: "Prepare browser launch packet",
+        blockedLabel: "Browser launch packet unavailable",
+      },
     });
     expect(JSON.stringify(model)).not.toMatch(secretLabelPattern);
   });
@@ -168,6 +173,9 @@ function bundleLaunchPreview(): Extract<ActivePreview, { kind: "bundle_launch" }
     kind: "bundle_launch",
     planId: "plan_bundle_launch_2_0_30",
     token: "Blue Frog / BFROG",
+    tokenName: "Blue Frog",
+    tokenSymbol: "BFROG",
+    description: "A blue frog community token.",
     totalBuysSol: 0.3,
     serviceFeeSol: 0.1,
     devWalletFeesSol: 0.1,
