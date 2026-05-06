@@ -8,11 +8,17 @@ export type BrowserHandoffUiModel = {
   sdkMethod: string;
   disabledActionLabel: "Browser handoff not wired";
   requiredMaterials: string[];
-  preparation?: {
-    kind: "bundle_swap";
-    actionLabel: "Prepare browser swap packet";
-    blockedLabel: "Browser swap packet unavailable";
-  };
+  preparation?:
+    | {
+        kind: "bundle_launch";
+        actionLabel: "Prepare browser launch packet";
+        blockedLabel: "Browser launch packet unavailable";
+      }
+    | {
+        kind: "bundle_swap";
+        actionLabel: "Prepare browser swap packet";
+        blockedLabel: "Browser swap packet unavailable";
+      };
 };
 
 export type BrowserHandoffUiInput = {
@@ -23,6 +29,11 @@ export type BrowserHandoffUiInput = {
 
 const HANDOFF_STATUS = "Ready for browser handoff setup" as const;
 const DISABLED_ACTION_LABEL = "Browser handoff not wired" as const;
+const BUNDLE_LAUNCH_PREPARATION = {
+  kind: "bundle_launch",
+  actionLabel: "Prepare browser launch packet",
+  blockedLabel: "Browser launch packet unavailable",
+} as const;
 const BUNDLE_SWAP_PREPARATION = {
   kind: "bundle_swap",
   actionLabel: "Prepare browser swap packet",
@@ -55,6 +66,7 @@ export function browserHandoffUiModel({
         "Connected dev wallet signer",
         "Browser-held bundle wallet material",
       ],
+      preparation: BUNDLE_LAUNCH_PREPARATION,
     };
   }
 

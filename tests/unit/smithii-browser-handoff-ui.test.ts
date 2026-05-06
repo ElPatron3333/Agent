@@ -34,6 +34,11 @@ describe("Smithii browser handoff UI model", () => {
         "Connected dev wallet signer",
         "Browser-held bundle wallet material",
       ],
+      preparation: {
+        kind: "bundle_launch",
+        actionLabel: "Prepare browser launch packet",
+        blockedLabel: "Browser launch packet unavailable",
+      },
     });
     expect(JSON.stringify(model)).not.toMatch(secretLabelPattern);
   });
