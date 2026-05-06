@@ -43,7 +43,7 @@ Set these before starting the app:
 ## Required Manual Materials
 
 - A burner connected wallet in Phantom or Solflare for the dev/fee wallet.
-- A burner buyer wallet CSV with a single `privateKey` header for the secondary bundle wallet import.
+- A burner buyer wallet CSV with a single `privateKey` header and at least one real burner private-key row for the secondary bundle wallet import.
 - A live Pump token mint for the swap test that you control or explicitly approve for low-amount testing.
 - A launch image file in `.png`, `.jpg`, or `.jpeg` format for the launch test.
 - Burner wallet balances sufficient for fees plus tiny test sizes.
