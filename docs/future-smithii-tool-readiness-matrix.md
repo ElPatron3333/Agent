@@ -9,7 +9,7 @@ Current implementation baseline: Pump Bundle Launch and supported Pump Bundle Sw
 
 This matrix prepares future Smithii integrations without guessing live behavior. It classifies each candidate tool by SDK surface, custody model, runtime config, metadata needs, and what must be proven before implementation.
 
-This document does not authorize implementation. A tool moves into build scope only after its row has a confirmed zero-custody path, preview model, result/error contract, and live-test plan.
+This document does not authorize implementation. A tool moves into build scope only after its row has a confirmed zero-custody path, preview model, result/error contract, and live-test plan. Use `docs/smithii-tool-onboarding-template.md` to convert any candidate row into a build/no-build decision before writing a spec.
 
 ## Status Labels
 
