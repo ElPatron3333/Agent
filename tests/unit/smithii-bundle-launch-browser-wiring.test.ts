@@ -64,6 +64,7 @@ describe("Smithii Bundle Launch browser wiring", () => {
     expect(prepared.packet.executorInput.isCashbackCoin).toBe(true);
     expect(prepared.packet.executorInput.isTokenPregenerated).toBe(true);
 
+    const mintSecretMaterial = Array.from(mintKeypair.secretKey).join(",");
     const summary = bundleLaunchBrowserExecutionSummary(prepared.packet);
     expect(summary).toEqual({
       status: "Browser launch packet prepared",
@@ -82,12 +83,12 @@ describe("Smithii Bundle Launch browser wiring", () => {
     expect(JSON.stringify(prepared.packet.plan)).not.toMatch(secretValuePattern);
     expect(JSON.stringify(prepared.packet.plan)).not.toContain(descriptionBody);
     expect(JSON.stringify(prepared.packet.plan)).not.toContain("PNG_IMAGE_BYTES_SHOULD_STAY_LOCAL");
-    expect(JSON.stringify(prepared.packet.plan)).not.toContain(mintKeypair.secretKey[0].toString());
+    expect(JSON.stringify(prepared.packet.plan)).not.toContain(mintSecretMaterial);
     expect(JSON.stringify(summary)).not.toMatch(secretLabelPattern);
     expect(JSON.stringify(summary)).not.toMatch(secretValuePattern);
     expect(JSON.stringify(summary)).not.toContain(descriptionBody);
     expect(JSON.stringify(summary)).not.toContain("PNG_IMAGE_BYTES_SHOULD_STAY_LOCAL");
-    expect(JSON.stringify(summary)).not.toContain(mintKeypair.secretKey[0].toString());
+    expect(JSON.stringify(summary)).not.toContain(mintSecretMaterial);
   });
 
   it("produces executor input compatible with the Pump browser launch executor", async () => {

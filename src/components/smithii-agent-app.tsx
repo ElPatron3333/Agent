@@ -1543,7 +1543,30 @@ function bundleLaunchPreparationScopeKey(input: {
   smithiiLive: SmithiiLiveBoundary | null;
   walletRoster: BrowserWalletEntry[];
 }) {
-  return bundleSwapPreparationScopeKey(input);
+  const { activePreview } = input;
+  const launchScope =
+    activePreview?.kind === "bundle_launch"
+      ? [
+          activePreview.tokenName,
+          activePreview.tokenSymbol,
+          activePreview.description,
+          activePreview.imageFileName,
+          activePreview.devWalletPubkey,
+          activePreview.serviceFeeSol,
+          activePreview.devWalletFeesSol,
+          activePreview.bundleWallets
+            .map((wallet) => `${wallet.pubkey}:${wallet.buyAmountSol}`)
+            .join("|"),
+          activePreview.modifiers.cashbackCoin,
+          activePreview.modifiers.useDifferentBlocks,
+          activePreview.modifiers.pregenerateTokenAddress,
+          activePreview.socials.website ?? "",
+          activePreview.socials.telegram ?? "",
+          activePreview.socials.twitter ?? "",
+        ].join("::")
+      : "no-launch-preview";
+
+  return [bundleSwapPreparationScopeKey(input), launchScope].join("::");
 }
 function bundleSwapPreparationScopeKey({
   activePreview,

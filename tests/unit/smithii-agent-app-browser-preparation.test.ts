@@ -14,6 +14,11 @@ describe("Smithii Agent App browser packet preparation wiring", () => {
     expect(appSource).toContain("Keypair");
     expect(appSource).toContain("accept=\"image/*\"");
     expect(appSource).toContain("setBundleLaunchMetadataFile");
+    expect(appSource).toContain("activePreview.tokenName");
+    expect(appSource).toContain("activePreview.tokenSymbol");
+    expect(appSource).toContain("activePreview.description");
+    expect(appSource).toContain("activePreview.imageFileName");
+    expect(appSource).toContain("activePreview.bundleWallets");
     expect(appSource).toContain("summary.mint");
     expect(appSource).toContain("summary.devAmount");
     expect(appSource).toContain("summary.buyerCount");
