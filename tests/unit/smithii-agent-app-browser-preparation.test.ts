@@ -26,6 +26,20 @@ describe("Smithii Agent App browser packet preparation wiring", () => {
     expect(appSource).toContain("summary.isCashbackCoin");
     expect(appSource).not.toContain("pump-browser-executor");
   });
+
+  it("renders browser live submit controls without importing the Pump executor", () => {
+    const appSource = source();
+
+    expect(appSource).toContain("connectInjectedSolanaWallet");
+    expect(appSource).toContain("injectedSolanaProviderFromWindow");
+    expect(appSource).toContain("executeBrowserLiveSubmit");
+    expect(appSource).toContain("Explicit live submit approval");
+    expect(appSource).toContain("Submit live launch via Smithii");
+    expect(appSource).toContain("Submit live swap via Smithii");
+    expect(appSource).toContain("submitResult.result");
+    expect(appSource).not.toContain("pump-browser-executor");
+  });
+
   it("renders Bundle Swap packet preparation without importing the Pump executor", () => {
     const appSource = source();
 

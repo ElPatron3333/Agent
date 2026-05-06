@@ -38,6 +38,17 @@ import {
   prepareBundleSwapBrowserExecution,
   type BundleSwapBrowserExecutionSummary,
 } from "@/lib/smithii/bundle-swap-browser-wiring";
+import {
+  executeBrowserLiveSubmit,
+  type BrowserLiveSubmitResult,
+} from "@/lib/smithii/browser-live-submit";
+import {
+  connectInjectedSolanaWallet,
+  injectedSolanaProviderFromWindow,
+  type BrowserWalletSigner,
+  type BrowserWalletWindowLike,
+} from "@/lib/solana/browser-wallet-signer";
+import type { PumpBrowserHandoffEnv } from "@/lib/smithii/browser-handoff";
 import type { GlobalSettings } from "@/lib/smithii/types";
 import { pauseVolumeBot } from "@/lib/smithii/mock";
 import { launchVolumeTemplates } from "@/lib/smithii/templates";
@@ -96,6 +107,33 @@ type BundleSwapPreparationState =
     };
 
 type BrowserPreparationState = BundleLaunchPreparationState | BundleSwapPreparationState;
+
+type BrowserWalletConnectionState =
+  | {
+      status: "disconnected";
+      label: string;
+    }
+  | {
+      status: "connected";
+      walletLabel: string;
+      signer: BrowserWalletSigner;
+    }
+  | {
+      status: "blocked";
+      reason: string;
+    };
+
+type BrowserLiveApprovalState = {
+  scopeKey: string;
+  approved: boolean;
+};
+
+type BrowserLiveSubmitState =
+  | {
+      scopeKey: string;
+      status: "submitting";
+    }
+  | ({ scopeKey: string } & BrowserLiveSubmitResult);
 
 const defaultPreview: ActivePreview = {
   kind: "bundle_launch",
@@ -159,6 +197,14 @@ export function SmithiiAgentApp() {
     useState<{ scopeKey: string; mintKeypair: Keypair } | null>(null);
   const [bundleSwapPreparation, setBundleSwapPreparation] =
     useState<BundleSwapPreparationState | null>(null);
+  const [browserWallet, setBrowserWallet] = useState<BrowserWalletConnectionState>({
+    status: "disconnected",
+    label: "No browser wallet connected.",
+  });
+  const [liveSubmitApproval, setLiveSubmitApproval] =
+    useState<BrowserLiveApprovalState | null>(null);
+  const [submitResult, setSubmitResult] =
+    useState<BrowserLiveSubmitState | null>(null);
   const [isSending, setIsSending] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const activeVolumeWalletPubkey = walletRoster.some(
@@ -204,6 +250,20 @@ export function SmithiiAgentApp() {
     browserHandoff?.preparation?.kind === "bundle_launch"
       ? visibleBundleLaunchPreparation
       : visibleBundleSwapPreparation;
+  const browserLiveSubmitScope =
+    browserHandoff?.preparation?.kind === "bundle_launch"
+      ? bundleLaunchPreparationScope
+      : browserHandoff?.preparation?.kind === "bundle_swap"
+        ? bundleSwapPreparationScope
+        : "no-browser-live-submit";
+  const visibleLiveSubmitApproval =
+    liveSubmitApproval?.scopeKey === browserLiveSubmitScope
+      ? liveSubmitApproval.approved
+      : false;
+  const visibleSubmitResult =
+    submitResult?.scopeKey === browserLiveSubmitScope ? submitResult : null;
+  const connectedBrowserSigner =
+    browserWallet.status === "connected" ? browserWallet.signer : null;
 
   useEffect(() => {
     void refreshAuditLog();
@@ -359,6 +419,30 @@ export function SmithiiAgentApp() {
     setWalletImportStatus("Exported private keys from browser state.");
   }
 
+  async function connectBrowserWallet() {
+    if (typeof window === "undefined") {
+      setBrowserWallet({
+        status: "blocked",
+        reason: "Browser wallet connection is only available in the browser.",
+      });
+      return;
+    }
+
+    const connection = await connectInjectedSolanaWallet(
+      injectedSolanaProviderFromWindow(window as unknown as BrowserWalletWindowLike),
+    );
+    if (connection.status === "connected") {
+      setBrowserWallet({
+        status: "connected",
+        walletLabel: connection.walletLabel,
+        signer: connection.signer,
+      });
+      return;
+    }
+
+    setBrowserWallet({ status: "blocked", reason: connection.reason });
+  }
+
   function rememberLastConfig(preview: ActivePreview | null) {
     if (
       !preview ||
@@ -457,6 +541,108 @@ export function SmithiiAgentApp() {
     });
   }
 
+  async function submitPreparedBrowserPacket() {
+    const scopeKey = browserLiveSubmitScope;
+    setSubmitResult({ scopeKey, status: "submitting" });
+
+    if (browserHandoff?.preparation?.kind === "bundle_launch") {
+      const mintKeypair = visibleBundleLaunchMintKeypair ?? Keypair.generate();
+      if (!visibleBundleLaunchMintKeypair) {
+        setBundleLaunchMintKeypair({ scopeKey, mintKeypair });
+      }
+
+      const prepared = prepareBundleLaunchBrowserExecution({
+        activePreview,
+        pendingPlan,
+        smithiiLive,
+        walletRoster,
+        metadataFile: visibleBundleLaunchMetadataFile,
+        mintKeypair,
+        nonce: bundleLaunchPreparationNonce(pendingPlan),
+        now: new Date(),
+      });
+      if (prepared.status === "blocked") {
+        setBundleLaunchPreparation({
+          kind: "bundle_launch",
+          status: "blocked",
+          scopeKey,
+          reason: prepared.reason,
+        });
+        setSubmitResult({ scopeKey, status: "blocked", reason: prepared.reason });
+        return;
+      }
+
+      setBundleLaunchPreparation({
+        kind: "bundle_launch",
+        status: "ready",
+        scopeKey,
+        summary: bundleLaunchBrowserExecutionSummary(prepared.packet),
+      });
+      const result = await executeBrowserLiveSubmit({
+        packet: { kind: "bundle_launch", executorInput: prepared.packet.executorInput },
+        signer: connectedBrowserSigner,
+        approval: visibleLiveSubmitApproval,
+        env: browserLiveSubmitEnv(),
+        now: new Date(),
+      });
+      setSubmitResult({ scopeKey, ...result });
+      return;
+    }
+
+    if (browserHandoff?.preparation?.kind === "bundle_swap") {
+      if (!connectedBrowserSigner) {
+        setSubmitResult({
+          scopeKey,
+          status: "blocked",
+          reason: "Connected browser wallet signer is required.",
+        });
+        return;
+      }
+
+      const prepared = prepareBundleSwapBrowserExecution({
+        activePreview,
+        pendingPlan,
+        smithiiLive,
+        walletRoster,
+        feeWalletPubkey: connectedBrowserSigner.publicKey.toBase58(),
+        nonce: bundleSwapPreparationNonce(pendingPlan),
+        now: new Date(),
+      });
+      if (prepared.status === "blocked") {
+        setBundleSwapPreparation({
+          kind: "bundle_swap",
+          status: "blocked",
+          scopeKey,
+          reason: prepared.reason,
+        });
+        setSubmitResult({ scopeKey, status: "blocked", reason: prepared.reason });
+        return;
+      }
+
+      setBundleSwapPreparation({
+        kind: "bundle_swap",
+        status: "ready",
+        scopeKey,
+        summary: bundleSwapBrowserExecutionSummary(prepared.packet),
+      });
+      const result = await executeBrowserLiveSubmit({
+        packet: { kind: "bundle_swap", executorInput: prepared.packet.executorInput },
+        signer: connectedBrowserSigner,
+        approval: visibleLiveSubmitApproval,
+        env: browserLiveSubmitEnv(),
+        now: new Date(),
+      });
+      setSubmitResult({ scopeKey, ...result });
+      return;
+    }
+
+    setSubmitResult({
+      scopeKey,
+      status: "blocked",
+      reason: "Browser live submit requires a prepared Bundle Launch or Bundle Swap.",
+    });
+  }
+
   return (
     <main className="min-h-screen bg-[#070a0a] text-slate-100">
       <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[320px_1fr]">
@@ -552,8 +738,9 @@ export function SmithiiAgentApp() {
             <button
               className="h-9 rounded-md bg-cyan-500 px-4 text-sm font-semibold text-slate-950"
               type="button"
+              onClick={() => void connectBrowserWallet()}
             >
-              Connect Wallet
+              {browserWallet.status === "connected" ? "Wallet Connected" : "Connect Wallet"}
             </button>
           </header>
 
@@ -589,8 +776,17 @@ export function SmithiiAgentApp() {
                     <BrowserHandoffPanel
                       model={browserHandoff}
                       preparation={visibleBrowserPreparation}
+                      browserWallet={browserWallet}
+                      approval={visibleLiveSubmitApproval}
+                      submitResult={visibleSubmitResult}
                       launchMetadataFileName={visibleBundleLaunchMetadataFile?.name ?? null}
                       onLaunchMetadataFileChange={selectBundleLaunchMetadataFile}
+                      onApprovalChange={(approved) =>
+                        setLiveSubmitApproval({
+                          scopeKey: browserLiveSubmitScope,
+                          approved,
+                        })
+                      }
                       onPrepare={
                         browserHandoff.preparation?.kind === "bundle_launch"
                           ? prepareBundleLaunchBrowserPacket
@@ -598,6 +794,7 @@ export function SmithiiAgentApp() {
                             ? prepareBundleSwapBrowserPacket
                             : undefined
                       }
+                      onSubmit={() => void submitPreparedBrowserPacket()}
                     />
                   ) : null}
                 </Panel>
@@ -1248,18 +1445,37 @@ function PreviewPanel({ preview }: { preview: ActivePreview | null }) {
 function BrowserHandoffPanel({
   model,
   preparation,
+  browserWallet,
+  approval,
+  submitResult,
   launchMetadataFileName,
   onLaunchMetadataFileChange,
+  onApprovalChange,
   onPrepare,
+  onSubmit,
 }: {
   model: BrowserHandoffUiModel;
   preparation: BrowserPreparationState | null;
+  browserWallet: BrowserWalletConnectionState;
+  approval: boolean;
+  submitResult: BrowserLiveSubmitState | null;
   launchMetadataFileName?: string | null;
   onLaunchMetadataFileChange?: (event: ChangeEvent<HTMLInputElement>) => void;
+  onApprovalChange: (approved: boolean) => void;
   onPrepare?: () => void;
+  onSubmit?: () => void;
 }) {
   const canPrepare = Boolean(model.preparation && onPrepare);
   const isLaunchPreparation = model.preparation?.kind === "bundle_launch";
+  const isSubmitting = submitResult?.status === "submitting";
+  const canSubmit = Boolean(
+    model.preparation &&
+      preparation?.status === "ready" &&
+      browserWallet.status === "connected" &&
+      approval &&
+      onSubmit &&
+      !isSubmitting,
+  );
 
   return (
     <div className="mt-4 rounded-md border border-emerald-900/80 bg-emerald-950/20 p-3">
@@ -1267,6 +1483,7 @@ function BrowserHandoffPanel({
       <PreviewRow label="Flow" value={model.flowLabel} />
       <PreviewRow label="SDK method" value={model.sdkMethod} />
       <PreviewRow label="Plan" value={model.planId} />
+      <PreviewRow label="Wallet" value={browserWalletStatusText(browserWallet)} />
       <div className="mt-3">
         <p className="text-xs uppercase text-slate-500">Required in browser</p>
         <ul className="mt-2 space-y-1 text-sm text-slate-300">
@@ -1292,6 +1509,15 @@ function BrowserHandoffPanel({
         </label>
       ) : null}
       {preparation ? <BrowserPreparationStatus preparation={preparation} /> : null}
+      <label className="mt-3 flex items-start gap-2 rounded-md border border-emerald-900/80 p-3 text-sm text-slate-300">
+        <input
+          className="mt-1 h-4 w-4 accent-emerald-400"
+          type="checkbox"
+          checked={approval}
+          onChange={(event) => onApprovalChange(event.target.checked)}
+        />
+        <span>Explicit live submit approval</span>
+      </label>
       <button
         className={`mt-3 h-9 w-full rounded-md border px-3 text-sm font-semibold ${
           canPrepare
@@ -1304,6 +1530,19 @@ function BrowserHandoffPanel({
       >
         {model.preparation?.actionLabel ?? model.disabledActionLabel}
       </button>
+      <button
+        className={`mt-3 h-9 w-full rounded-md border px-3 text-sm font-semibold ${
+          canSubmit
+            ? "border-cyan-500 bg-cyan-400 text-slate-950"
+            : "cursor-not-allowed border-cyan-800 text-cyan-100 opacity-70"
+        }`}
+        type="button"
+        disabled={!canSubmit}
+        onClick={onSubmit}
+      >
+        {liveSubmitActionLabel(model)}
+      </button>
+      {submitResult ? <BrowserSubmitStatus submitResult={submitResult} /> : null}
     </div>
   );
 }
@@ -1366,6 +1605,115 @@ function BrowserPreparationStatus({
       <PreviewRow label="Fees" value={summary.expectedFeesLamports} />
     </div>
   );
+}
+
+function BrowserSubmitStatus({
+  submitResult,
+}: {
+  submitResult: BrowserLiveSubmitState;
+}) {
+  if (submitResult.status === "submitting") {
+    return (
+      <p className="mt-3 rounded-md border border-cyan-800/80 p-3 text-sm text-cyan-100">
+        Submitting browser packet to Smithii.
+      </p>
+    );
+  }
+
+  if (submitResult.status === "blocked") {
+    return (
+      <p className="mt-3 rounded-md border border-amber-800/80 p-3 text-sm text-amber-100">
+        Live submit blocked: {submitResult.reason}
+      </p>
+    );
+  }
+
+  if (submitResult.status === "failed") {
+    return (
+      <div className="mt-3 rounded-md border border-rose-800/80 p-3 text-sm text-slate-300">
+        <PreviewRow label="Submit" value="Failed" />
+        <PreviewRow label="Category" value={submitResult.error.category} />
+        <PreviewRow label="Message" value={submitResult.error.message} />
+        {submitResult.error.bundleId ? (
+          <PreviewRow label="Bundle" value={submitResult.error.bundleId} />
+        ) : null}
+        {submitResult.error.signature ? (
+          <PreviewRow label="Signature" value={submitResult.error.signature} />
+        ) : null}
+      </div>
+    );
+  }
+
+  if (submitResult.result.flow === "bundle_launch") {
+    return (
+      <div className="mt-3 rounded-md border border-cyan-800/80 p-3 text-sm text-slate-300">
+        <PreviewRow label="Submit" value="Submitted" />
+        <PreviewRow label="Flow" value={submitResult.result.flow} />
+        <PreviewRow label="Plan" value={submitResult.result.planId} />
+        <PreviewRow label="Idempotency" value={submitResult.result.idempotencyKey} />
+        <PreviewRow label="Mint" value={submitResult.result.mint} />
+        <PreviewRow label="Create tx" value={submitResult.result.createTxSignature} />
+        <PreviewRow
+          label="Buyer txs"
+          value={String(submitResult.result.buyerTxSignatures.length)}
+        />
+        <PreviewRow
+          label="Bundles"
+          value={String(submitResult.result.bundleIds.length)}
+        />
+        <PreviewRow label="Payment" value={submitResult.result.paymentSignature} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-md border border-cyan-800/80 p-3 text-sm text-slate-300">
+      <PreviewRow label="Submit" value="Submitted" />
+      <PreviewRow label="Flow" value={submitResult.result.flow} />
+      <PreviewRow label="Plan" value={submitResult.result.planId} />
+      <PreviewRow label="Idempotency" value={submitResult.result.idempotencyKey} />
+      <PreviewRow label="Action" value={submitResult.result.action} />
+      <PreviewRow
+        label="TXs"
+        value={String(submitResult.result.txSignatures.length)}
+      />
+      <PreviewRow
+        label="Bundles"
+        value={String(submitResult.result.bundleIds.length)}
+      />
+      <PreviewRow label="Payment" value={submitResult.result.paymentSignature} />
+    </div>
+  );
+}
+
+function browserLiveSubmitEnv(): PumpBrowserHandoffEnv {
+  return {
+    NEXT_PUBLIC_SOLANA_RPC_URL: process.env.NEXT_PUBLIC_SOLANA_RPC_URL,
+    NEXT_PUBLIC_SMITHII_PROXY_URL: process.env.NEXT_PUBLIC_SMITHII_PROXY_URL,
+    NEXT_PUBLIC_SMITHII_JITO_UUID: process.env.NEXT_PUBLIC_SMITHII_JITO_UUID,
+  };
+}
+
+function browserWalletStatusText(wallet: BrowserWalletConnectionState) {
+  if (wallet.status === "connected") {
+    return wallet.walletLabel;
+  }
+  if (wallet.status === "blocked") {
+    return wallet.reason;
+  }
+
+  return wallet.label;
+}
+
+function liveSubmitActionLabel(model: BrowserHandoffUiModel) {
+  if (model.preparation?.kind === "bundle_launch") {
+    return "Submit live launch via Smithii";
+  }
+  if (model.preparation?.kind === "bundle_swap") {
+    return "Submit live swap via Smithii";
+  }
+
+  return "Submit live via Smithii";
 }
 
 function Metric({
