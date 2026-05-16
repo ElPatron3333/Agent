@@ -6,6 +6,152 @@ Branch: `main`
 Minimum code commit: `37acf53`
 Full runbook: `docs/phase8-live-acceptance-runbook.md`
 
+## Read This First
+
+The screen is a local acceptance harness for Smithii's Pump flows. It is not a polished customer product yet.
+
+The app has two modes:
+
+1. Mock mode: safe simulation. Type prompts, get previews, type `confirm`, and the app returns fake mock signatures. This does not touch mainnet.
+2. Browser live mode: real Smithii SDK submission. This only becomes possible after preflight passes, a wallet is connected, browser packets are prepared, explicit live approval is checked, and the wallet prompt is approved.
+
+Start with mock mode. Only move to live mode after the mock smoke tests make sense and preflight returns `Status: READY`.
+
+## What The Screen Shows
+
+- Top buttons: quick-fill the chat box for Bundle Launch, Bundle Swap, Volume, and templates.
+- Connect Wallet: connects Phantom/Solflare for browser live testing.
+- Left sidebar: current mode, loaded wallets, and last saved sequence.
+- Center preview: the current Bundle Launch, Bundle Swap, Volume Bot, or Launch + Volume preview.
+- Confirmation Gate: shows whether there is an active plan and whether Smithii live is mock, browser-handoff-ready, or blocked.
+- Browser handoff panel: appears for live-eligible Bundle Launch and Bundle Swap previews. Use this only after preflight passes.
+- Wallet Roster: local wallet list. `Import PKs` imports a local CSV into browser state only.
+- Chat: where prompts are typed.
+- Execution Snapshot: current plan/preview status.
+- Audit Log: local audit records for previews and mock/live attempts.
+
+## Mock Smoke Test First
+
+These checks require no real wallet, no real private keys, and no mainnet submit.
+
+### Mock Bundle Launch
+
+Type these into Chat one at a time and click Send after each line:
+
+```text
+launch a token called Blue Frog with a 1-wallet bundle
+BFROG
+A blue frog community token.
+0.01
+blue-frog.png
+no
+no
+no
+no
+confirm
+```
+
+Expected result:
+
+- Center panel shows a Bundle Launch preview before `confirm`.
+- Confirmation Gate says Smithii live is browser handoff ready, but server execution is blocked.
+- After `confirm`, the response says `Mock Bundle Launch executed` and returns a mock mint/signature.
+- No wallet popup should appear in this mock flow.
+
+### Mock Bundle Swap
+
+Type these into Chat one at a time:
+
+```text
+buy 0.01 SOL with 1 wallet
+ApprovedPumpMint111111111111111111111111111111
+confirm
+```
+
+The mint above is only a placeholder for mock smoke testing. For live testing, use a real Smithii-controlled or locally approved Pump mint.
+
+Expected result:
+
+- Center panel shows a Bundle Swap preview.
+- After `confirm`, the response says `Mock Bundle Swap executed` and returns a mock signature.
+- No wallet popup should appear in this mock flow.
+
+### Mock Volume Bot
+
+Before this test, in Wallet Roster click `Use` on any bundle wallet so the Volume wallet is selected.
+
+Type these into Chat one at a time:
+
+```text
+volume bot
+VolumeMint1111111111111111111111111111111111
+100
+0.01 to 0.02
+10 to 20
+auto sell
+after each
+sell 100
+confirm
+```
+
+Expected result:
+
+- Center panel shows a Volume Bot preview.
+- Smithii live should stay blocked-awaiting-Smithii because classic Volume Bot is backend-keyed.
+- After `confirm`, the response says `Mock Volume Bot started`.
+- No wallet popup should appear in this mock flow.
+
+### Mock Launch + Volume Sequence
+
+Before this test, in Wallet Roster click `Use` on any bundle wallet so the Volume wallet is selected.
+
+Type this into Chat:
+
+```text
+launch a token called Blue Frog then start volume after 5 min with momentum template
+```
+
+Then type:
+
+```text
+confirm
+```
+
+Expected result:
+
+- Center panel shows a Launch + Volume preview.
+- Smithii live should stay blocked-awaiting-Smithii.
+- After `confirm`, the response says the mock Bundle Launch executed and Volume Bot was queued.
+
+## Live Test UI Flow
+
+Use this only after `pnpm phase8:live-preflight ...` returns `Status: READY`.
+
+### Live Bundle Swap UI Flow
+
+1. Click `Connect Wallet` and connect the burner dev/fee wallet.
+2. Click `Import PKs` in Wallet Roster and select the local burner buyer CSV.
+3. In Chat, build a Bundle Swap preview for the approved Pump mint.
+4. In the Browser handoff panel, click the prepare button for the swap packet.
+5. Confirm the packet summary: flow, plan, idempotency, action, pool, wallet count, amounts, fees.
+6. Check `Explicit live submit approval`.
+7. Click `Submit live swap via Smithii`.
+8. Approve the wallet prompt only if the burner wallet and amount are exactly expected.
+
+### Live Bundle Launch UI Flow
+
+Run this only after live Bundle Swap passes.
+
+1. Keep the burner dev/fee wallet connected.
+2. Keep the burner buyer CSV imported.
+3. In Chat, build a Bundle Launch preview.
+4. In the Browser handoff panel, select the local launch image file.
+5. Click the prepare button for the launch packet.
+6. Confirm the packet summary: flow, plan, idempotency, mint, dev amount, buyer count, fees, pregenerate, cashback.
+7. Check `Explicit live submit approval`.
+8. Click `Submit live launch via Smithii`.
+9. Approve the wallet prompt only if the burner wallet and amount are exactly expected.
+
 ## Goal
 
 Run the first controlled live acceptance pass for the browser-only Pump flows:
