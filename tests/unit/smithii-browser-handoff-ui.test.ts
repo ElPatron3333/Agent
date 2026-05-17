@@ -180,6 +180,7 @@ function bundleLaunchPreview(): Extract<ActivePreview, { kind: "bundle_launch" }
     serviceFeeSol: 0.1,
     devWalletFeesSol: 0.1,
     devWalletPubkey: "DevWallet...91nP",
+    devAmountSol: 0,
     bundleWallets: [
       { pubkey: "wallet111", buyAmountSol: 0.1 },
       { pubkey: "wallet222", buyAmountSol: 0.2 },

@@ -18,7 +18,13 @@ describe("Smithii Agent App browser packet preparation wiring", () => {
     expect(appSource).toContain("activePreview.tokenSymbol");
     expect(appSource).toContain("activePreview.description");
     expect(appSource).toContain("activePreview.imageFileName");
+    expect(appSource).toContain("activePreview.devAmountSol");
     expect(appSource).toContain("activePreview.bundleWallets");
+    expect(appSource).toContain("launchWalletRows: publicWalletRows");
+    expect(appSource).toContain("launchImageFileName: launchIntakeImageFile?.name ?? null");
+    expect(appSource).toContain("selectLaunchIntakeImageFile");
+    expect(appSource).toContain("Launch image");
+    expect(appSource).toContain("walletIndexLabel(index)");
     expect(appSource).toContain("summary.mint");
     expect(appSource).toContain("summary.devAmount");
     expect(appSource).toContain("summary.buyerCount");
@@ -38,6 +44,17 @@ describe("Smithii Agent App browser packet preparation wiring", () => {
     expect(appSource).toContain("Submit live swap via Smithii");
     expect(appSource).toContain("submitResult.result");
     expect(appSource).not.toContain("pump-browser-executor");
+  });
+
+  it("wires visible audit log filters to the rendered records and export", () => {
+    const appSource = source();
+
+    expect(appSource).toContain("const auditLogFilters");
+    expect(appSource).toContain("checked={visibleAuditLogFilters[log]}");
+    expect(appSource).toContain("onChange={() => toggleAuditLogFilter(log)}");
+    expect(appSource).toContain("visibleAuditLog.slice(-4)");
+    expect(appSource).toContain("exportAuditLog(visibleAuditLog)");
+    expect(appSource).not.toContain("defaultChecked={false}");
   });
 
   it("renders Bundle Swap packet preparation without importing the Pump executor", () => {

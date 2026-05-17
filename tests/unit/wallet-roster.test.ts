@@ -14,7 +14,7 @@ import { handleMockChat } from "../../src/lib/agent/mock-chat";
 const now = Date.parse("2026-04-29T00:00:00.000Z");
 
 describe("wallet roster boundary", () => {
-  it("parses privateKey CSV into browser-only bundle wallets", () => {
+  it("parses privateKey CSV into browser-only wallets with a dev wallet first", () => {
     const imported = parsePrivateKeyCsv(
       [
         "privateKey",
@@ -26,16 +26,16 @@ describe("wallet roster boundary", () => {
     expect(imported).toEqual([
       {
         id: "imported-1",
-        pubkey: "Imported wallet 1",
+        pubkey: "Imported dev wallet 1",
         privateKey: "4Nd1mportedPrivateKey111111111111111111111111111",
         solBalance: 0,
         tokenBalance: 0,
         pctOfSupply: 0,
-        role: "bundle",
+        role: "dev",
       },
       {
         id: "imported-2",
-        pubkey: "Imported wallet 2",
+        pubkey: "Imported bundle wallet 2",
         privateKey: "5Nd1mportedPrivateKey222222222222222222222222222",
         solBalance: 0,
         tokenBalance: 0,
@@ -45,12 +45,12 @@ describe("wallet roster boundary", () => {
     ]);
   });
 
-  it("parses a privateKey column from a multi-column CSV", () => {
+  it("parses role and privateKey columns from a multi-column CSV", () => {
     const imported = parsePrivateKeyCsv(
       [
-        "label,privateKey,notes",
-        "first,4Nd1mportedPrivateKey111111111111111111111111111,alpha",
-        "second,5Nd1mportedPrivateKey222222222222222222222222222,beta",
+        "label,role,privateKey,notes",
+        "first,bundle,4Nd1mportedPrivateKey111111111111111111111111111,alpha",
+        "second,dev,5Nd1mportedPrivateKey222222222222222222222222222,beta",
       ].join("\n"),
     );
 
@@ -58,6 +58,7 @@ describe("wallet roster boundary", () => {
       "4Nd1mportedPrivateKey111111111111111111111111111",
       "5Nd1mportedPrivateKey222222222222222222222222222",
     ]);
+    expect(imported.map((wallet) => wallet.role)).toEqual(["bundle", "dev"]);
   });
 
   it("does not derive imported public labels from private-key contents", () => {
@@ -68,7 +69,7 @@ describe("wallet roster boundary", () => {
       ].join("\n"),
     );
 
-    expect(imported[0].pubkey).toBe("Imported wallet 1");
+    expect(imported[0].pubkey).toBe("Imported dev wallet 1");
     expect(imported[0].pubkey).not.toContain(imported[0].privateKey.slice(-4));
   });
 
@@ -79,7 +80,18 @@ describe("wallet roster boundary", () => {
           "\n",
         ),
       ),
-    ).toThrow("CSV must have a single privateKey header.");
+    ).toThrow("CSV must include a privateKey header.");
+  });
+
+  it("rejects unsupported wallet roles", () => {
+    expect(() =>
+      parsePrivateKeyCsv(
+        [
+          "role,privateKey",
+          "fee,4Nd1mportedPrivateKey111111111111111111111111111",
+        ].join("\n"),
+      ),
+    ).toThrow("Wallet role on row 2 must be dev or bundle.");
   });
 
   it("rejects empty private key rows", () => {
@@ -99,9 +111,9 @@ describe("wallet roster boundary", () => {
 
     expect(csv).toBe(
       [
-        "privateKey",
-        "4DemoPrivateKeyDev1111111111111111111111111111111",
-        "4DemoPrivateKeyBnde111111111111111111111111111111",
+        "role,privateKey",
+        "dev,4DemoPrivateKeyDev1111111111111111111111111111111",
+        "bundle,4DemoPrivateKeyBnde111111111111111111111111111111",
       ].join("\n"),
     );
   });

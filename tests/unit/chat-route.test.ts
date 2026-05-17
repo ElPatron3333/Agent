@@ -258,6 +258,44 @@ describe("/api/chat route", () => {
     });
   });
 
+  it("accepts structured launch intake with public wallet rows and an image filename", async () => {
+    const response = await POST(
+      jsonRequest({
+        message:
+          "launch a coin called Shitcoin on Pumpfun, bundle it with 1 wallets. Wallet 1 is dev and uses 0.5 SOL. Wallet 2 buys 0.2 SOL. Description: Test launch. Skip socials.",
+        launchWalletRows: [
+          { id: "imported-1", pubkey: "DevPubkey111", role: "dev", solBalance: 0, tokenBalance: 0, pctOfSupply: 0 },
+          { id: "imported-2", pubkey: "BuyerPubkey222", role: "bundle", solBalance: 0, tokenBalance: 0, pctOfSupply: 0 },
+        ],
+        launchImageFileName: "shitcoin.png",
+      }),
+    );
+    const body = await responseJson(response);
+
+    expect(response.status).toBe(200);
+    expectNoPrivateKeyAliasFields(body);
+    expect(body.activePreview).toMatchObject({
+      kind: "bundle_launch",
+      devAmountSol: 0.5,
+    });
+  });
+
+  it("rejects malformed public launch wallet rows", async () => {
+    const response = await POST(
+      jsonRequest({
+        message: "launch a coin called Bad on Pumpfun",
+        launchWalletRows: [
+          { id: "imported-1", pubkey: "DevPubkey111", role: "dev" },
+        ],
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await responseJson(response)).toEqual({
+      error: "Invalid launch wallet rows.",
+    });
+  });
+
   it("rejects malformed drafts at the route boundary", async () => {
     const response = await POST(
       jsonRequest({

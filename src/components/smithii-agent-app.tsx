@@ -2,6 +2,7 @@
 
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { Keypair } from "@solana/web3.js";
 
 import type {
@@ -50,19 +51,11 @@ import {
 } from "@/lib/solana/browser-wallet-signer";
 import type { PumpBrowserHandoffEnv } from "@/lib/smithii/browser-handoff";
 import type { GlobalSettings } from "@/lib/smithii/types";
-import { pauseVolumeBot } from "@/lib/smithii/mock";
-import { launchVolumeTemplates } from "@/lib/smithii/templates";
 import { BundleLaunchPreview } from "@/components/previews/bundle-launch-preview";
-import {
-  DEFAULT_GLOBAL_SETTINGS,
-  clampSlippageInput,
-  readStoredGlobalSettings,
-  writeStoredGlobalSettings,
-} from "@/lib/global-settings";
+import { DEFAULT_GLOBAL_SETTINGS } from "@/lib/global-settings";
 import {
   buildLaunchWalletSelection,
   buildSwapWalletSelection,
-  createDemoWalletRoster,
   exportPrivateKeyCsv,
   parsePrivateKeyCsv,
   toPublicWalletRows,
@@ -72,9 +65,12 @@ import {
 const initialMessages: ChatMessage[] = [
   {
     role: "assistant",
-    text: "Tell me to prepare a Bundle Launch, Bundle Swap, or Volume Bot. I will show a preview before any mock execution.",
+    text: "Describe the launch you want to prepare. I will build a preview first, then hand off live execution in the browser after approval.",
   },
 ];
+
+// Browser tooling can inject attributes like fdprocessedid before hydration.
+const hydrationSafeControlProps = { suppressHydrationWarning: true } as const;
 
 type BundleSwapPreviewState = Extract<ActivePreview, { kind: "bundle_swap" }>;
 
@@ -135,60 +131,33 @@ type BrowserLiveSubmitState =
     }
   | ({ scopeKey: string } & BrowserLiveSubmitResult);
 
-const defaultPreview: ActivePreview = {
-  kind: "bundle_launch",
-  planId: "No active plan",
-  token: "Signal Cat / SCAT",
-  tokenName: "Signal Cat",
-  tokenSymbol: "SCAT",
-  description: "Demo Signal Cat launch preview.",
-  totalBuysSol: 1.75,
-  serviceFeeSol: 0.1,
-  devWalletFeesSol: 0.2,
-  devWalletPubkey: "DevWallet...91nP",
-  bundleWallets: [
-    { pubkey: "BndlWallet...4kd9", buyAmountSol: 0.5 },
-    { pubkey: "BndlWallet...8qa2", buyAmountSol: 0.5 },
-    { pubkey: "BndlWallet...2mwp", buyAmountSol: 0.5 },
-  ],
-  imageFileName: "signal-cat.png",
-  socialsEnabled: false,
-  socials: {},
-  modifiers: {
-    cashbackCoin: false,
-    useDifferentBlocks: true,
-    pregenerateTokenAddress: true,
-  },
-  globalSettings: DEFAULT_GLOBAL_SETTINGS,
-  summary: "Ask for a launch preview to prepare a fresh plan.",
-};
+type AuditLogFilter = "bundler" | "volume" | "swap";
+
+const auditLogFilters = ["bundler", "volume", "swap"] as const;
 
 export function SmithiiAgentApp() {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
-  const [walletRoster, setWalletRoster] = useState<BrowserWalletEntry[]>(
-    createDemoWalletRoster,
-  );
+  const [walletRoster, setWalletRoster] = useState<BrowserWalletEntry[]>([]);
   const [selectedVolumeWalletPubkey, setSelectedVolumeWalletPubkey] =
     useState("");
-  const [input, setInput] = useState(
-    "launch a token called Blue Frog with a 3-wallet bundle",
-  );
+  const [input, setInput] = useState("");
   const [pendingPlan, setPendingPlan] = useState<PendingPlan | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [globalSettings, setGlobalSettings] = useState<GlobalSettings>(
-    getInitialGlobalSettings,
-  );
-  const [activePreview, setActivePreview] =
-    useState<ActivePreview | null>(defaultPreview);
+  const globalSettings: GlobalSettings = DEFAULT_GLOBAL_SETTINGS;
+  const [activePreview, setActivePreview] = useState<ActivePreview | null>(null);
   const [executionStatus, setExecutionStatus] = useState("Waiting for preview");
   const [smithiiLive, setSmithiiLive] = useState<SmithiiLiveBoundary | null>(null);
-  const [volumeBotRun, setVolumeBotRun] = useState<VolumeBotRun | null>(null);
-  const [lastSequenceConfig, setLastSequenceConfig] = useState<LastConfigSnapshot | null>(
-    getInitialLastSequenceConfig,
-  );
+  const [, setVolumeBotRun] = useState<VolumeBotRun | null>(null);
+  const [lastSequenceConfig, setLastSequenceConfig] =
+    useState<LastConfigSnapshot | null>(null);
   const [auditLog, setAuditLog] = useState<AuditLogRecord[]>([]);
+  const [visibleAuditLogFilters, setVisibleAuditLogFilters] = useState<
+    Record<AuditLogFilter, boolean>
+  >({ bundler: true, volume: true, swap: true });
   const [walletImportStatus, setWalletImportStatus] =
-    useState("Private keys stay in browser state.");
+    useState("Import the user's live test wallets before preparing handoff.");
+  const [launchIntakeImageFile, setLaunchIntakeImageFile] =
+    useState<File | null>(null);
   const [bundleLaunchPreparation, setBundleLaunchPreparation] =
     useState<BundleLaunchPreparationState | null>(null);
   const [bundleLaunchMetadataFile, setBundleLaunchMetadataFile] =
@@ -213,6 +182,10 @@ export function SmithiiAgentApp() {
   )
     ? selectedVolumeWalletPubkey
     : "";
+  const publicWalletRows = toPublicWalletRows(walletRoster);
+  const visibleAuditLog = auditLog.filter((record) =>
+    auditRecordMatchesFilters(record, visibleAuditLogFilters),
+  );
   const browserHandoff = browserHandoffUiModel({
     activePreview,
     pendingPlan,
@@ -234,10 +207,15 @@ export function SmithiiAgentApp() {
     bundleLaunchPreparation?.scopeKey === bundleLaunchPreparationScope
       ? bundleLaunchPreparation
       : null;
+  const visibleLaunchIntakeImageFile =
+    activePreview?.kind === "bundle_launch" &&
+    launchIntakeImageFile?.name === activePreview.imageFileName
+      ? launchIntakeImageFile
+      : null;
   const visibleBundleLaunchMetadataFile =
     bundleLaunchMetadataFile?.scopeKey === bundleLaunchPreparationScope
       ? bundleLaunchMetadataFile.file
-      : null;
+      : visibleLaunchIntakeImageFile;
   const visibleBundleLaunchMintKeypair =
     bundleLaunchMintKeypair?.scopeKey === bundleLaunchPreparationScope
       ? bundleLaunchMintKeypair.mintKeypair
@@ -267,6 +245,12 @@ export function SmithiiAgentApp() {
 
   useEffect(() => {
     void refreshAuditLog();
+
+    const loadSavedSequence = window.setTimeout(() => {
+      setLastSequenceConfig(readStoredLastSequenceConfig(window.localStorage));
+    }, 0);
+
+    return () => window.clearTimeout(loadSavedSequence);
   }, []);
 
   async function refreshAuditLog() {
@@ -282,16 +266,11 @@ export function SmithiiAgentApp() {
     }
   }
 
-  function updateGlobalSettings(
-    updater: (current: GlobalSettings) => GlobalSettings,
-  ) {
-    setGlobalSettings((current) => {
-      const next = updater(current);
-      if (typeof window !== "undefined") {
-        writeStoredGlobalSettings(window.sessionStorage, next);
-      }
-      return next;
-    });
+  function toggleAuditLogFilter(filter: AuditLogFilter) {
+    setVisibleAuditLogFilters((current) => ({
+      ...current,
+      [filter]: !current[filter],
+    }));
   }
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
@@ -316,6 +295,8 @@ export function SmithiiAgentApp() {
           pendingPlan,
           draft,
           launchWalletSelection: launchSelectionForDraft(draft, walletRoster),
+          launchWalletRows: publicWalletRows,
+          launchImageFileName: launchIntakeImageFile?.name ?? null,
           swapWalletSelection: swapSelectionForDraftOrIntent(
             draft,
             walletRoster,
@@ -372,7 +353,7 @@ export function SmithiiAgentApp() {
           error.message === "Invalid pending plan." ||
           error.message === "Preview expired")
           ? error.message
-          : "The mock chat route failed. Check the dev logs and try again.";
+          : "The agent route failed. Check the dev logs and try again.";
       setMessages((current) => [
         ...current,
         {
@@ -462,6 +443,12 @@ export function SmithiiAgentApp() {
     setBundleLaunchMetadataFile(
       file ? { scopeKey: bundleLaunchPreparationScope, file } : null,
     );
+    setBundleLaunchPreparation(null);
+  }
+
+  function selectLaunchIntakeImageFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setLaunchIntakeImageFile(file);
     setBundleLaunchPreparation(null);
   }
 
@@ -644,56 +631,103 @@ export function SmithiiAgentApp() {
   }
 
   return (
-    <main className="min-h-screen bg-[#070a0a] text-slate-100">
-      <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[320px_1fr]">
-        <aside className="border-b border-cyan-950/80 bg-[#050707] p-4 lg:border-b-0 lg:border-r">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
-                Smithii Agent
-              </p>
-              <h1 className="mt-2 text-2xl font-semibold text-white">
-                Pump.fun terminal
-              </h1>
-            </div>
-            <div className="h-3 w-3 rounded-full bg-emerald-400" />
+    <main className="min-h-screen bg-[#030707] text-[#eefafa]">
+      <div className="grid min-h-screen grid-cols-1 xl:grid-cols-[454px_minmax(0,1fr)]">
+        <aside className="flex min-h-screen flex-col border-b border-[#07515a] bg-[#050908] p-4 xl:border-b-0 xl:border-r">
+          <div className="flex items-center gap-3">
+            <Image
+              src="/smithii-mark.webp"
+              alt="Smithii"
+              width={42}
+              height={42}
+              className="h-10 w-10 object-contain"
+              priority
+            />
+            <h1 className="text-3xl font-semibold leading-none text-[#d9ffff]">
+              <span className="text-[#20b9c7]">Smithii</span> Tools
+            </h1>
           </div>
 
+          <section className="mt-10 border-t border-[#07515a] pt-8">
+            <div className="flex flex-wrap items-center gap-5">
+              <h2 className="text-base font-semibold text-[#f3ffff]">Logs:</h2>
+              {auditLogFilters.map((log) => (
+                <label
+                  key={log}
+                  className="flex items-center gap-2 text-sm font-semibold text-[#ddffff]"
+                >
+                  <input
+                    {...hydrationSafeControlProps}
+                    className="h-4 w-4 rounded border border-[#3a4548] bg-black accent-[#1db7c5]"
+                    type="checkbox"
+                    checked={visibleAuditLogFilters[log]}
+                    onChange={() => toggleAuditLogFilter(log)}
+                  />
+                  {log}
+                </label>
+              ))}
+            </div>
+            <div className="mt-7 grid grid-cols-4 gap-3 text-center text-xs text-slate-400">
+              <span>Time</span>
+              <span>Wallet</span>
+              <span>Behavior</span>
+              <span>Status</span>
+            </div>
+            <div className="mt-5 min-h-[116px] space-y-2 text-xs text-slate-500">
+              {visibleAuditLog.slice(-4).reverse().map((record) => (
+                <div
+                  key={record.id}
+                  className="grid grid-cols-4 gap-3 rounded-md border border-[#0a3035] bg-black/20 p-2 text-center"
+                >
+                  <span>{record.createdAt.slice(11, 16)}</span>
+                  <span className="truncate">{record.tool ?? "agent"}</span>
+                  <span className="truncate text-[#9feff0]">
+                    {auditEventLabel(record.event)}
+                  </span>
+                  <span className="truncate">{record.outcome}</span>
+                </div>
+              ))}
+              {visibleAuditLog.length === 0 ? (
+                <p className="pt-4 text-center">No Data Available.</p>
+              ) : null}
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                {...hydrationSafeControlProps}
+                className="h-8 rounded-md border border-[#0b6973] px-3 text-xs font-semibold text-[#a8ffff]"
+                type="button"
+                onClick={() => void refreshAuditLog()}
+              >
+                Refresh
+              </button>
+              <button
+                {...hydrationSafeControlProps}
+                className="h-8 rounded-md border border-[#0b6973] px-3 text-xs font-semibold text-[#a8ffff] disabled:cursor-not-allowed disabled:opacity-40"
+                type="button"
+                onClick={() => exportAuditLog(visibleAuditLog)}
+                disabled={visibleAuditLog.length === 0}
+              >
+                Export JSON
+              </button>
+            </div>
+          </section>
+
           <section className="mt-8">
-            <h2 className="text-sm font-semibold text-slate-200">Session</h2>
+            <h2 className="text-base font-semibold text-[#f3ffff]">
+              Session
+            </h2>
             <div className="mt-3 space-y-2 text-sm text-slate-300">
-              <PreviewRow label="Dex" value="PumpFun" />
-              <PreviewRow
-                label="Wallets"
-                value={`${walletRoster.length} loaded`}
-              />
+              <PreviewRow label="Wallets" value={`${walletRoster.length} loaded`} />
               <PreviewRow label="Mode" value={liveModeLabel(smithiiLive)} />
-            </div>
-          </section>
-
-          <section className="mt-8">
-            <h2 className="text-sm font-semibold text-slate-200">Logs</h2>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-              <span className="rounded-md border border-cyan-900/80 px-2 py-2 text-center text-cyan-200">
-                bundler
-              </span>
-              <span className="rounded-md border border-cyan-900/80 px-2 py-2 text-center text-cyan-200">
-                volume
-              </span>
-              <span className="rounded-md border border-cyan-900/80 px-2 py-2 text-center text-cyan-200">
-                swap
-              </span>
-            </div>
-          </section>
-
-          <section className="mt-8">
-            <h2 className="text-sm font-semibold text-slate-200">Last sequence</h2>
-            <div className="mt-3 space-y-2 text-sm text-slate-300">
               <PreviewRow label="Flow" value={lastSequenceConfig?.kind ?? "None"} />
-              <PreviewRow label="Saved" value={lastSequenceConfig?.label ?? "No saved sequence"} />
+              <PreviewRow
+                label="Saved"
+                value={lastSequenceConfig?.label ?? "No saved sequence"}
+              />
             </div>
             <button
-              className="mt-3 h-9 w-full rounded-md border border-cyan-700 px-3 text-sm font-semibold text-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+              {...hydrationSafeControlProps}
+              className="mt-3 h-9 w-full rounded-md border border-[#0b6973] px-3 text-sm font-semibold text-[#a8ffff] disabled:cursor-not-allowed disabled:opacity-50"
               type="button"
               disabled={!lastSequenceConfig}
               onClick={() => {
@@ -705,73 +739,54 @@ export function SmithiiAgentApp() {
               Reuse sequence
             </button>
           </section>
+
+          <button
+            {...hydrationSafeControlProps}
+            className="mt-auto h-9 rounded-md border border-rose-900/80 text-sm font-semibold text-pink-300"
+            type="button"
+            onClick={() => {
+              setMessages(initialMessages);
+              setPendingPlan(null);
+              setDraft(null);
+              setActivePreview(null);
+              setSmithiiLive(null);
+              setVolumeBotRun(null);
+              setExecutionStatus("Waiting for preview");
+              setLaunchIntakeImageFile(null);
+              setWalletRoster([]);
+              setWalletImportStatus(
+                "Import the user's live test wallets before preparing handoff.",
+              );
+            }}
+          >
+            Delete Session
+          </button>
         </aside>
 
-        <section className="flex min-w-0 flex-col">
-          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-950/80 px-5 py-4">
-            <nav className="flex gap-1 text-sm">
-              {["Bundle Launch", "Bundle Swap", "Volume"].map((item) => (
-                <button
-                  key={item}
-                  className="h-9 rounded-md border border-cyan-900/80 px-3 text-cyan-100 transition hover:border-cyan-400"
-                  type="button"
-                  onClick={() => setInput(item.toLowerCase())}
-                >
-                  {item}
-                </button>
-              ))}
-              {launchVolumeTemplates().map((template) => (
-                <button
-                  key={template.id}
-                  className="h-9 rounded-md border border-cyan-900/80 px-3 text-cyan-100 transition hover:border-cyan-400"
-                  type="button"
-                  onClick={() =>
-                    setInput(
-                      `launch a token called Blue Frog then start volume after 5 min with ${template.name.toLowerCase()} template`,
-                    )
-                  }
-                >
-                  {template.name}
-                </button>
-              ))}
-            </nav>
-            <button
-              className="h-9 rounded-md bg-cyan-500 px-4 text-sm font-semibold text-slate-950"
-              type="button"
-              onClick={() => void connectBrowserWallet()}
-            >
-              {browserWallet.status === "connected" ? "Wallet Connected" : "Connect Wallet"}
-            </button>
+        <section className="flex min-w-0 flex-col bg-[#030707]">
+          <header className="flex min-h-[56px] flex-wrap items-stretch justify-between border-b border-[#07515a] bg-[#050908]">
+            <div className="flex min-h-[56px] items-center border-r border-[#07515a] bg-[#08272b] px-6 text-base font-medium text-[#25c3d0]">
+              Smithii launch agent
+            </div>
+            <div className="flex items-center px-4 text-sm font-semibold">
+              <button
+                {...hydrationSafeControlProps}
+                className="h-10 rounded-md bg-[#25aebe] px-5 text-sm font-semibold text-white"
+                type="button"
+                onClick={() => void connectBrowserWallet()}
+              >
+                {browserWallet.status === "connected"
+                  ? "Wallet Connected"
+                  : "Connect Wallet"}
+              </button>
+            </div>
           </header>
 
-          <div className="grid flex-1 grid-cols-1 gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <div className="grid flex-1 grid-cols-1 gap-5 border-b border-[#07515a] p-6 2xl:grid-cols-[minmax(0,1fr)_430px]">
             <section className="min-w-0">
-              <Metrics preview={activePreview} />
-
-              <div className="mt-4 grid gap-4 xl:grid-cols-2">
+              <div className="grid gap-4 xl:grid-cols-2">
                 <PreviewPanel preview={activePreview} />
-                <Panel title="Confirmation Gate">
-                  <PreviewRow
-                    label="Active plan"
-                    value={pendingPlan ? pendingPlan.tool : "None"}
-                  />
-                  <PreviewRow label="Draft" value={draftSummary(draft)} />
-                  <PreviewRow
-                    label="Plan TTL"
-                    value={pendingPlan ? "5 minutes" : "No plan"}
-                  />
-                  <PreviewRow label="Execute words" value="confirm, launch, start" />
-                  <PreviewRow
-                    label="Smithii live"
-                    value={liveModeLabel(smithiiLive)}
-                  />
-                  <PreviewRow
-                    label="Server execution"
-                    value={smithiiLive?.serverExecution ?? "Mock only"}
-                  />
-                  <p className="mt-4 rounded-md border border-cyan-950/80 p-3 text-sm leading-6 text-slate-300">
-                    {liveBoundaryText(smithiiLive)}
-                  </p>
+                <Panel title="Confirm & Handoff">
                   {browserHandoff ? (
                     <BrowserHandoffPanel
                       model={browserHandoff}
@@ -796,47 +811,95 @@ export function SmithiiAgentApp() {
                       }
                       onSubmit={() => void submitPreparedBrowserPacket()}
                     />
-                  ) : null}
+                  ) : (
+                    <p className="rounded-md border border-[#07515a] bg-black/20 p-3 text-sm leading-6 text-slate-300">
+                      A live browser handoff appears here after the agent
+                      prepares a launch preview.
+                    </p>
+                  )}
                 </Panel>
               </div>
 
-              <Panel className="mt-4" title="Wallet Roster">
+              <Panel className="mt-5 min-h-[360px]" title="Wallet">
                 <input
+                  {...hydrationSafeControlProps}
                   ref={importInputRef}
                   className="hidden"
                   type="file"
                   accept=".csv,text/csv"
                   onChange={importPrivateKeys}
                 />
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-slate-400">
+                    Import the live test wallets provided by the user. The
+                    table starts empty.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      {...hydrationSafeControlProps}
+                      className="h-9 rounded-md border border-[#0b6973] px-4 text-sm font-semibold text-[#a8ffff]"
+                      type="button"
+                      onClick={() => importInputRef.current?.click()}
+                    >
+                      Import PKs
+                    </button>
+                    <button
+                      {...hydrationSafeControlProps}
+                      className="h-9 rounded-md border border-[#0b6973] px-4 text-sm font-semibold text-[#a8ffff] disabled:cursor-not-allowed disabled:opacity-40"
+                      type="button"
+                      onClick={exportPrivateKeys}
+                      disabled={walletRoster.length === 0}
+                    >
+                      Export PKs
+                    </button>
+                  </div>
+                </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[520px] text-left text-sm">
-                    <thead className="text-xs uppercase text-slate-500">
+                  <table className="w-full min-w-[640px] text-left text-sm">
+                    <thead className="border-b border-[#07515a] text-xs text-slate-400">
                       <tr>
-                        <th className="py-2">Wallet</th>
-                        <th className="py-2">SOL</th>
-                        <th className="py-2">Token</th>
-                        <th className="py-2">% supply</th>
-                        <th className="py-2">Status</th>
-                        <th className="py-2">Volume</th>
+                        <th className="py-3 pr-4">#</th>
+                        <th className="py-3 pr-4">Wallet</th>
+                        <th className="py-3 pr-4">SOL Balance</th>
+                        <th className="py-3 pr-4">Token Balance</th>
+                        <th className="py-3 pr-4">% Of Supply</th>
+                        <th className="py-3 pr-4">Volume</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-cyan-950/70">
-                      {toPublicWalletRows(walletRoster).map((wallet) => (
-                        <tr key={wallet.id}>
-                          <td className="py-3 text-slate-200">{wallet.pubkey}</td>
-                          <td className="py-3">{wallet.solBalance.toFixed(2)}</td>
-                          <td className="py-3">{wallet.tokenBalance}</td>
-                          <td className="py-3">
-                            {wallet.pctOfSupply.toFixed(1)}
+                    <tbody className="divide-y divide-[#073f46] text-slate-300">
+                      {publicWalletRows.length === 0 ? (
+                        <tr>
+                          <td
+                            className="py-8 text-center text-sm text-slate-500"
+                            colSpan={6}
+                          >
+                            No wallets loaded. Import the user-provided live test
+                            wallets before preparing handoff.
                           </td>
-                          <td className="py-3">
-                            <span className="rounded-md bg-slate-900 px-2 py-1 text-xs text-cyan-200">
+                        </tr>
+                      ) : null}
+                      {publicWalletRows.map((wallet, index) => (
+                        <tr key={wallet.id}>
+                          <td className="py-3 pr-4 text-slate-500">
+                            {walletIndexLabel(index)}
+                          </td>
+                          <td className="py-3 pr-4 text-slate-100">
+                            <span className="mr-2 rounded-md bg-[#08272b] px-2 py-1 text-xs font-semibold text-[#a8ffff]">
                               {wallet.role}
                             </span>
+                            {wallet.pubkey}
                           </td>
-                          <td className="py-3">
+                          <td className="py-3 pr-4">
+                            {wallet.solBalance.toFixed(2)}
+                          </td>
+                          <td className="py-3 pr-4">{wallet.tokenBalance}</td>
+                          <td className="py-3 pr-4">
+                            {wallet.pctOfSupply.toFixed(1)}
+                          </td>
+                          <td className="py-3 pr-4">
                             {wallet.role === "bundle" ? (
                               <button
+                                {...hydrationSafeControlProps}
                                 className="h-8 rounded-md border border-cyan-700 px-2 text-xs font-semibold text-cyan-100 disabled:border-emerald-700 disabled:text-emerald-200"
                                 type="button"
                                 disabled={
@@ -859,59 +922,28 @@ export function SmithiiAgentApp() {
                     </tbody>
                   </table>
                 </div>
-                <PreviewRow
-                  label="Volume wallet"
-                  value={activeVolumeWalletPubkey || "Not selected"}
-                />
+                {activeVolumeWalletPubkey ? (
+                  <PreviewRow
+                    label="Volume wallet"
+                    value={activeVolumeWalletPubkey}
+                  />
+                ) : null}
                 <p className="mt-4 text-sm text-slate-400">
                   {walletImportStatus}
                 </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    className="h-9 rounded-md border border-cyan-700 px-3 text-sm font-semibold text-cyan-100"
-                    type="button"
-                    onClick={() => setWalletRoster((current) => addMockWallet(current))}
-                  >
-                    New mock wallet
-                  </button>
-                  <button
-                    className="h-9 rounded-md border border-rose-900 px-3 text-sm font-semibold text-rose-200"
-                    type="button"
-                    onClick={() => {
-                      setWalletRoster(createDemoWalletRoster());
-                      setWalletImportStatus("Private keys stay in browser state.");
-                    }}
-                  >
-                    Reset roster
-                  </button>
-                  <button
-                    className="h-9 rounded-md border border-cyan-700 px-3 text-sm font-semibold text-cyan-100"
-                    type="button"
-                    onClick={() => importInputRef.current?.click()}
-                  >
-                    Import PKs
-                  </button>
-                  <button
-                    className="h-9 rounded-md border border-cyan-700 px-3 text-sm font-semibold text-cyan-100"
-                    type="button"
-                    onClick={exportPrivateKeys}
-                  >
-                    Export PKs
-                  </button>
-                </div>
               </Panel>
             </section>
 
-            <aside className="min-w-0">
-              <Panel title="Chat">
+            <aside className="min-w-0 space-y-5">
+              <Panel title="Agent Console">
                 <div className="max-h-[440px] space-y-3 overflow-y-auto pr-1">
                   {messages.map((message, index) => (
                     <div
                       key={`${message.role}-${index}`}
-                      className="rounded-md border border-cyan-950/70 bg-[#090f0f] p-3"
+                      className="rounded-md border border-[#0a3035] bg-[#071011] p-3"
                     >
                       <p className="text-xs font-semibold uppercase text-cyan-300">
-                        {message.role}
+                        {message.role === "assistant" ? "agent" : "you"}
                       </p>
                       <p className="mt-2 text-sm leading-6 text-slate-300">
                         {message.text}
@@ -919,198 +951,41 @@ export function SmithiiAgentApp() {
                     </div>
                   ))}
                 </div>
+                <label className="mt-4 block rounded-md border border-[#073f46] bg-black/20 p-3 text-sm text-slate-300">
+                  <span className="block text-xs uppercase text-slate-500">
+                    Launch image
+                  </span>
+                  <input
+                    {...hydrationSafeControlProps}
+                    className="mt-2 block w-full text-sm text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-[#25aebe] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
+                    type="file"
+                    accept="image/*"
+                    onChange={selectLaunchIntakeImageFile}
+                  />
+                  <span className="mt-2 block text-xs text-slate-500">
+                    {launchIntakeImageFile?.name ?? "No image selected"}
+                  </span>
+                </label>
                 <form className="mt-4 flex gap-2" onSubmit={sendMessage}>
                   <input
-                    className="h-10 min-w-0 flex-1 rounded-md border border-cyan-950/80 bg-black px-3 text-sm text-slate-100 outline-none focus:border-cyan-400"
+                    {...hydrationSafeControlProps}
+                    className="h-10 min-w-0 flex-1 rounded-md border border-[#344044] bg-[#080b0b] px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#16a9b6]"
+                    placeholder="Describe the token launch to prepare"
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
                   />
                   <button
-                    className="h-10 rounded-md border border-cyan-500 px-3 text-sm font-semibold text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+                    {...hydrationSafeControlProps}
+                    className="h-10 rounded-md bg-[#25aebe] px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                     type="submit"
-                    disabled={isSending}
+                    disabled={isSending || input.trim().length === 0}
                   >
                     {isSending ? "..." : "Send"}
                   </button>
                 </form>
-              </Panel>
-
-              <Panel className="mt-4" title="Execution Snapshot">
-                <PreviewRow label="Status" value={executionStatus} />
-                <PreviewRow
-                  label="Plan ID"
-                  value={pendingPlan?.id ?? activePreviewId(activePreview)}
-                />
-                <PreviewRow
-                  label="Preview"
-                  value={activePreview?.kind ?? "No preview"}
-                />
-                <PreviewRow label="Draft" value={draftSummary(draft)} />
-                {volumeBotRun ? (
-                  <div className="mt-4 rounded-md border border-cyan-950/70 p-3">
-                    <PreviewRow label="Run ID" value={volumeBotRun.runId} />
-                    <PreviewRow label="Run state" value={volumeBotRun.state} />
-                    <PreviewRow
-                      label="Makers done"
-                      value={String(volumeBotRun.makersDone)}
-                    />
-                    <PreviewRow
-                      label="Volume done"
-                      value={`${volumeBotRun.volumeDoneSol.toFixed(3)} SOL`}
-                    />
-                    <button
-                      className="mt-3 h-9 rounded-md border border-amber-500 px-3 text-sm font-semibold text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
-                      type="button"
-                      disabled={volumeBotRun.state === "paused"}
-                      onClick={() =>
-                        setVolumeBotRun((current) =>
-                          current
-                            ? {
-                                ...current,
-                                state: pauseVolumeBot({ runId: current.runId })
-                                  .status,
-                              }
-                            : current,
-                        )
-                      }
-                    >
-                      Pause
-                    </button>
-                  </div>
-                ) : null}
-              </Panel>
-
-              <Panel className="mt-4" title="Audit Log">
-                <div className="space-y-3">
-                  {auditLog.slice(-4).reverse().map((record) => (
-                    <div
-                      key={record.id}
-                      className="rounded-md border border-cyan-950/70 bg-black/40 p-3 text-sm"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="font-medium text-slate-100">
-                          {auditEventLabel(record.event)}
-                        </span>
-                        <span className="text-xs text-slate-500">
-                          {record.tool ?? "unknown"}
-                        </span>
-                      </div>
-                      <p className="mt-2 truncate text-xs text-cyan-200">
-                        {record.planId}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {record.outcome}
-                      </p>
-                    </div>
-                  ))}
-                  {auditLog.length === 0 ? (
-                    <p className="text-sm text-slate-400">No audit records</p>
-                  ) : null}
-                </div>
-                <div className="mt-4 flex gap-2">
-                  <button
-                    className="h-9 rounded-md border border-cyan-700 px-3 text-sm font-semibold text-cyan-100"
-                    type="button"
-                    onClick={() => void refreshAuditLog()}
-                  >
-                    Refresh
-                  </button>
-                  <button
-                    className="h-9 rounded-md border border-cyan-700 px-3 text-sm font-semibold text-cyan-100"
-                    type="button"
-                    onClick={() => exportAuditLog(auditLog)}
-                    disabled={auditLog.length === 0}
-                  >
-                    Export JSON
-                  </button>
-                </div>
-              </Panel>
-
-              <Panel className="mt-4" title="Global Settings">
-                <div className="space-y-4">
-                  <div>
-                    <p className="mb-2 text-xs uppercase text-slate-500">Speed</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(["fast", "turbo"] as const).map((speed) => (
-                        <button
-                          key={speed}
-                          className={`h-9 rounded-md border px-3 text-sm font-semibold ${
-                            globalSettings.speed === speed
-                              ? "border-cyan-400 bg-cyan-500 text-slate-950"
-                              : "border-cyan-900/80 text-cyan-100"
-                          }`}
-                          type="button"
-                          onClick={() =>
-                            updateGlobalSettings((current) => ({
-                              ...current,
-                              speed,
-                            }))
-                          }
-                        >
-                          {speed === "turbo" ? "Turbo" : "Fast"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <label className="block text-sm text-slate-300">
-                    <span className="mb-2 block text-xs uppercase text-slate-500">
-                      Jito tip
-                    </span>
-                    <select
-                      className="h-9 w-full rounded-md border border-cyan-950/80 bg-black px-3 text-sm text-slate-100 outline-none focus:border-cyan-400"
-                      value={String(globalSettings.jitoTip)}
-                      onChange={(event) =>
-                        updateGlobalSettings((current) => ({
-                          ...current,
-                          jitoTip:
-                            event.target.value === "default"
-                              ? "default"
-                              : Number(event.target.value),
-                        }))
-                      }
-                    >
-                      <option value="default">Default</option>
-                      <option value="0.001">0.001 SOL</option>
-                      <option value="0.004">0.004 SOL</option>
-                      <option value="0.01">0.01 SOL</option>
-                    </select>
-                  </label>
-
-                  <label className="flex items-center justify-between gap-4 border-b border-cyan-950/70 py-2 text-sm">
-                    <span className="text-slate-500">MEV protection</span>
-                    <input
-                      checked={globalSettings.mevProtection}
-                      className="h-4 w-4 accent-cyan-400"
-                      type="checkbox"
-                      onChange={(event) =>
-                        updateGlobalSettings((current) => ({
-                          ...current,
-                          mevProtection: event.target.checked,
-                        }))
-                      }
-                    />
-                  </label>
-
-                  <label className="block text-sm text-slate-300">
-                    <span className="mb-2 block text-xs uppercase text-slate-500">
-                      Slippage %
-                    </span>
-                    <input
-                      className="h-9 w-full rounded-md border border-cyan-950/80 bg-black px-3 text-sm text-slate-100 outline-none focus:border-cyan-400"
-                      min={1}
-                      max={100}
-                      step={1}
-                      type="number"
-                      value={globalSettings.slippagePct}
-                      onChange={(event) =>
-                        updateGlobalSettings((current) => ({
-                          ...current,
-                          slippagePct: clampSlippageInput(event.target.value),
-                        }))
-                      }
-                    />
-                  </label>
+                <div className="mt-3 rounded-md border border-[#073f46] bg-black/20 px-3 py-2 text-sm text-slate-400">
+                  <span className="text-slate-500">Status:</span>{" "}
+                  <span className="text-slate-200">{executionStatus}</span>
                 </div>
               </Panel>
             </aside>
@@ -1119,22 +994,6 @@ export function SmithiiAgentApp() {
       </div>
     </main>
   );
-}
-
-function getInitialGlobalSettings() {
-  if (typeof window === "undefined") {
-    return DEFAULT_GLOBAL_SETTINGS;
-  }
-
-  return readStoredGlobalSettings(window.sessionStorage);
-}
-
-function getInitialLastSequenceConfig() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  return readStoredLastSequenceConfig(window.localStorage);
 }
 
 function lastConfigSnapshotForPreview(
@@ -1186,7 +1045,7 @@ function exportAuditLog(records: AuditLogRecord[]) {
 
 function auditEventLabel(event: AuditLogRecord["event"]) {
   if (event === "mock_executed") {
-    return "Mock executed";
+    return "Test executed";
   }
   if (event === "confirmation_rejected") {
     return "Confirm rejected";
@@ -1194,8 +1053,30 @@ function auditEventLabel(event: AuditLogRecord["event"]) {
   if (event === "confirmation_expired") {
     return "Confirm expired";
   }
+  if (event === "private_key_rejected") {
+    return "Private key rejected";
+  }
 
   return "Preview prepared";
+}
+
+function auditRecordMatchesFilters(
+  record: AuditLogRecord,
+  filters: Record<AuditLogFilter, boolean>,
+) {
+  const category = auditRecordFilterCategory(record);
+  return filters[category];
+}
+
+function auditRecordFilterCategory(record: AuditLogRecord): AuditLogFilter {
+  if (record.tool === "volume_bot" || record.tool === "launch_volume_sequence") {
+    return "volume";
+  }
+  if (record.tool === "bundle_swap") {
+    return "swap";
+  }
+
+  return "bundler";
 }
 
 async function responseErrorMessage(response: Response) {
@@ -1212,18 +1093,6 @@ async function responseErrorMessage(response: Response) {
   } catch {
     return null;
   }
-}
-
-function Metrics({ preview }: { preview: ActivePreview | null }) {
-  const values = metricValues(preview);
-
-  return (
-    <div className="grid gap-4 md:grid-cols-3">
-      <Metric label={values[0].label} value={values[0].value} tone="cyan" />
-      <Metric label={values[1].label} value={values[1].value} tone="amber" />
-      <Metric label={values[2].label} value={values[2].value} tone="emerald" />
-    </div>
-  );
 }
 
 function PreviewPanel({ preview }: { preview: ActivePreview | null }) {
@@ -1287,10 +1156,6 @@ function PreviewPanel({ preview }: { preview: ActivePreview | null }) {
           label="Slippage"
           value={`${preview.globalSettings.slippagePct}%`}
         />
-        <PreviewRow
-          label="Service fee"
-          value={`${preview.serviceFeeSol.toFixed(2)} SOL`}
-        />
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[420px] text-left text-xs">
             <thead className="uppercase text-slate-500">
@@ -1341,20 +1206,8 @@ function PreviewPanel({ preview }: { preview: ActivePreview | null }) {
           label="Bundle buys"
           value={`${preview.launch.totalBuysSol.toFixed(2)} SOL`}
         />
-        <PreviewRow
-          label="Launch fee"
-          value={`${preview.launch.serviceFeeSol.toFixed(2)} SOL`}
-        />
         <PreviewRow label="Volume wallet" value={preview.volume.volumeWalletPubkey} />
         <PreviewRow label="Makers" value={String(preview.volume.makers)} />
-        <PreviewRow
-          label="Volume fee"
-          value={`${preview.volume.serviceFeeSol.toFixed(3)} SOL`}
-        />
-        <PreviewRow
-          label="Estimated volume total"
-          value={`${preview.volume.estimatedTotalFeesSol.toFixed(3)} SOL`}
-        />
         <PreviewRow
           label="Speed"
           value={settingSpeedLabel(preview.globalSettings.speed)}
@@ -1387,14 +1240,6 @@ function PreviewPanel({ preview }: { preview: ActivePreview | null }) {
       <PreviewRow label="Sell timing" value={sellTimingLabel(preview.sellTiming)} />
       <PreviewRow label="Sell mode" value={sellModeLabel(preview.sellMode)} />
       <PreviewRow label="Duration" value={preview.expectedDurationText} />
-      <PreviewRow
-        label="Service fee"
-        value={`${preview.serviceFeeSol.toFixed(3)} SOL`}
-      />
-      <PreviewRow
-        label="Estimated total"
-        value={`${preview.estimatedTotalFeesSol.toFixed(3)} SOL`}
-      />
       <PreviewRow
         label="Speed"
         value={settingSpeedLabel(preview.globalSettings.speed)}
@@ -1478,7 +1323,7 @@ function BrowserHandoffPanel({
   );
 
   return (
-    <div className="mt-4 rounded-md border border-emerald-900/80 bg-emerald-950/20 p-3">
+    <div className="mt-4 rounded-md border border-[#0b6973] bg-[#062022] p-3">
       <PreviewRow label="Handoff status" value={model.status} />
       <PreviewRow label="Flow" value={model.flowLabel} />
       <PreviewRow label="SDK method" value={model.sdkMethod} />
@@ -1493,12 +1338,13 @@ function BrowserHandoffPanel({
         </ul>
       </div>
       {isLaunchPreparation ? (
-        <label className="mt-3 block rounded-md border border-emerald-900/80 p-3 text-sm text-slate-300">
+        <label className="mt-3 block rounded-md border border-[#0b6973] p-3 text-sm text-slate-300">
           <span className="block text-xs uppercase text-slate-500">
             Metadata image
           </span>
           <input
-            className="mt-2 block w-full text-sm text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-emerald-400 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-950"
+            {...hydrationSafeControlProps}
+            className="mt-2 block w-full text-sm text-slate-300 file:mr-3 file:rounded-md file:border-0 file:bg-[#25aebe] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
             type="file"
             accept="image/*"
             onChange={onLaunchMetadataFileChange}
@@ -1509,9 +1355,10 @@ function BrowserHandoffPanel({
         </label>
       ) : null}
       {preparation ? <BrowserPreparationStatus preparation={preparation} /> : null}
-      <label className="mt-3 flex items-start gap-2 rounded-md border border-emerald-900/80 p-3 text-sm text-slate-300">
+      <label className="mt-3 flex items-start gap-2 rounded-md border border-[#0b6973] p-3 text-sm text-slate-300">
         <input
-          className="mt-1 h-4 w-4 accent-emerald-400"
+          {...hydrationSafeControlProps}
+          className="mt-1 h-4 w-4 accent-[#25c3d0]"
           type="checkbox"
           checked={approval}
           onChange={(event) => onApprovalChange(event.target.checked)}
@@ -1519,10 +1366,11 @@ function BrowserHandoffPanel({
         <span>Explicit live submit approval</span>
       </label>
       <button
+        {...hydrationSafeControlProps}
         className={`mt-3 h-9 w-full rounded-md border px-3 text-sm font-semibold ${
           canPrepare
-            ? "border-emerald-500 bg-emerald-400 text-slate-950"
-            : "cursor-not-allowed border-emerald-800 text-emerald-100 opacity-70"
+            ? "border-[#25aebe] bg-[#25aebe] text-white"
+            : "cursor-not-allowed border-[#0b6973] text-[#a8ffff] opacity-60"
         }`}
         type="button"
         disabled={!canPrepare}
@@ -1531,10 +1379,11 @@ function BrowserHandoffPanel({
         {model.preparation?.actionLabel ?? model.disabledActionLabel}
       </button>
       <button
+        {...hydrationSafeControlProps}
         className={`mt-3 h-9 w-full rounded-md border px-3 text-sm font-semibold ${
           canSubmit
-            ? "border-cyan-500 bg-cyan-400 text-slate-950"
-            : "cursor-not-allowed border-cyan-800 text-cyan-100 opacity-70"
+            ? "border-[#25aebe] bg-[#25aebe] text-white"
+            : "cursor-not-allowed border-[#0b6973] text-[#a8ffff] opacity-60"
         }`}
         type="button"
         disabled={!canSubmit}
@@ -1569,7 +1418,7 @@ function BrowserPreparationStatus({
     const { summary } = preparation;
 
     return (
-      <div className="mt-3 rounded-md border border-emerald-800/80 p-3 text-sm text-slate-300">
+      <div className="mt-3 rounded-md border border-[#0b6973] p-3 text-sm text-slate-300">
         <PreviewRow label="Packet" value={summary.status} />
         <PreviewRow label="Flow" value={summary.flow} />
         <PreviewRow label="Plan" value={summary.planId} />
@@ -1577,7 +1426,6 @@ function BrowserPreparationStatus({
         <PreviewRow label="Mint" value={summary.mint} />
         <PreviewRow label="Dev amount" value={`${summary.devAmount} SOL`} />
         <PreviewRow label="Buyers" value={String(summary.buyerCount)} />
-        <PreviewRow label="Fees" value={summary.expectedFeesLamports} />
         <PreviewRow
           label="Pregenerate"
           value={summary.isTokenPregenerated ? "Yes" : "No"}
@@ -1593,7 +1441,7 @@ function BrowserPreparationStatus({
   const { summary } = preparation;
 
   return (
-    <div className="mt-3 rounded-md border border-emerald-800/80 p-3 text-sm text-slate-300">
+    <div className="mt-3 rounded-md border border-[#0b6973] p-3 text-sm text-slate-300">
       <PreviewRow label="Packet" value={summary.status} />
       <PreviewRow label="Flow" value={summary.flow} />
       <PreviewRow label="Plan" value={summary.planId} />
@@ -1602,7 +1450,6 @@ function BrowserPreparationStatus({
       <PreviewRow label="Pool" value={summary.pool} />
       <PreviewRow label="Wallets" value={String(summary.walletCount)} />
       <PreviewRow label="Amounts" value={String(summary.amountCount)} />
-      <PreviewRow label="Fees" value={summary.expectedFeesLamports} />
     </div>
   );
 }
@@ -1614,7 +1461,7 @@ function BrowserSubmitStatus({
 }) {
   if (submitResult.status === "submitting") {
     return (
-      <p className="mt-3 rounded-md border border-cyan-800/80 p-3 text-sm text-cyan-100">
+      <p className="mt-3 rounded-md border border-[#0b6973] p-3 text-sm text-[#a8ffff]">
         Submitting browser packet to Smithii.
       </p>
     );
@@ -1646,7 +1493,7 @@ function BrowserSubmitStatus({
 
   if (submitResult.result.flow === "bundle_launch") {
     return (
-      <div className="mt-3 rounded-md border border-cyan-800/80 p-3 text-sm text-slate-300">
+      <div className="mt-3 rounded-md border border-[#0b6973] p-3 text-sm text-slate-300">
         <PreviewRow label="Submit" value="Submitted" />
         <PreviewRow label="Flow" value={submitResult.result.flow} />
         <PreviewRow label="Plan" value={submitResult.result.planId} />
@@ -1667,7 +1514,7 @@ function BrowserSubmitStatus({
   }
 
   return (
-    <div className="mt-3 rounded-md border border-cyan-800/80 p-3 text-sm text-slate-300">
+    <div className="mt-3 rounded-md border border-[#0b6973] p-3 text-sm text-slate-300">
       <PreviewRow label="Submit" value="Submitted" />
       <PreviewRow label="Flow" value={submitResult.result.flow} />
       <PreviewRow label="Plan" value={submitResult.result.planId} />
@@ -1716,29 +1563,6 @@ function liveSubmitActionLabel(model: BrowserHandoffUiModel) {
   return "Submit live via Smithii";
 }
 
-function Metric({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: "cyan" | "amber" | "emerald";
-}) {
-  const toneClass = {
-    cyan: "text-cyan-200",
-    amber: "text-amber-200",
-    emerald: "text-emerald-200",
-  }[tone];
-
-  return (
-    <div className="rounded-md border border-cyan-950/80 bg-[#091010] p-4">
-      <p className="text-xs uppercase text-slate-500">{label}</p>
-      <p className={`mt-2 text-xl font-semibold ${toneClass}`}>{value}</p>
-    </div>
-  );
-}
-
 function Panel({
   title,
   className = "",
@@ -1750,9 +1574,9 @@ function Panel({
 }) {
   return (
     <section
-      className={`rounded-md border border-cyan-950/80 bg-[#070d0d] p-4 ${className}`}
+      className={`rounded-md border border-[#07515a] bg-[#050b0b] p-4 ${className}`}
     >
-      <h2 className="text-sm font-semibold text-white">{title}</h2>
+      <h2 className="text-base font-semibold text-[#f3ffff]">{title}</h2>
       <div className="mt-4">{children}</div>
     </section>
   );
@@ -1760,7 +1584,7 @@ function Panel({
 
 function PreviewRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-cyan-950/70 py-2 text-sm last:border-b-0">
+    <div className="flex items-center justify-between gap-4 border-b border-[#073f46] py-2 text-sm last:border-b-0">
       <span className="text-slate-500">{label}</span>
       <span className="overflow-hidden text-ellipsis text-right font-medium text-slate-100">
         {value}
@@ -1771,118 +1595,13 @@ function PreviewRow({ label, value }: { label: string; value: string }) {
 
 function liveModeLabel(boundary: SmithiiLiveBoundary | null) {
   if (!boundary || boundary.mode === "mock") {
-    return "Mock";
+    return "Preview required";
   }
   if (boundary.mode === "browser-handoff-ready") {
     return "Browser handoff ready";
   }
 
   return "Blocked awaiting Smithii";
-}
-
-function liveBoundaryText(boundary: SmithiiLiveBoundary | null) {
-  if (!boundary || boundary.mode === "mock") {
-    return "Mock execution only happens after a preview is prepared and a confirm word is sent through chat.";
-  }
-  if (boundary.mode === "browser-handoff-ready") {
-    return "Smithii handoff is typed for browser-only execution. Backend live execution remains blocked.";
-  }
-
-  return boundary.blockers[0] ?? "Smithii live execution is blocked until the integration contract is confirmed.";
-}
-
-function activePreviewId(preview: ActivePreview | null) {
-  if (!preview) {
-    return "None";
-  }
-
-  if (preview.kind === "volume_bot") {
-    return preview.botId;
-  }
-  if (preview.kind === "launch_volume_sequence") {
-    return preview.sequenceId;
-  }
-
-  return preview.planId;
-}
-
-function draftSummary(draft: Draft | null) {
-  if (!draft) {
-    return "None";
-  }
-
-  if (draft.tool === "bundle_swap") {
-    const data = draft.data;
-    if (!data.direction) {
-      return "Waiting for direction";
-    }
-    if (!data.fromToken || !data.toToken) {
-      return "Waiting for tokens";
-    }
-    if (!data.walletCount) {
-      return "Waiting for wallet count";
-    }
-    if (!data.quantityMode) {
-      return "Waiting for quantity";
-    }
-    if (!data.txCount) {
-      return "Waiting for TX count";
-    }
-    if (data.txDelayBlocks === undefined) {
-      return "Waiting for delay";
-    }
-
-    return "Ready for swap preview";
-  }
-
-  if (draft.tool === "volume_bot") {
-    const data = draft.data;
-    if (!data.tokenAddress) {
-      return "Waiting for token";
-    }
-    if (!data.makers) {
-      return "Waiting for makers";
-    }
-    if (!data.orderAmount) {
-      return "Waiting for order range";
-    }
-    if (!data.delaySeconds) {
-      return "Waiting for delay range";
-    }
-    if (!data.onPurchase) {
-      return "Waiting for purchase handling";
-    }
-    if (!data.sellTiming) {
-      return "Waiting for sell timing";
-    }
-    if (!data.sellMode) {
-      return "Waiting for sell mode";
-    }
-    if (data.sellMode === "sell_strategy" && !data.sellStrategy) {
-      return "Waiting for sell strategy";
-    }
-
-    return "Ready for volume preview";
-  }
-
-  const data = draft.data;
-  if (!data.tokenName) {
-    return "Waiting for name";
-  }
-  if (!data.symbol) {
-    return "Waiting for symbol";
-  }
-  if (!data.description) {
-    return "Waiting for description";
-  }
-  if (!data.walletCount) {
-    return "Waiting for wallet count";
-  }
-  if (!data.solPerWallet) {
-    return "Waiting for SOL amount";
-  }
-
-  return "Ready for preview";
 }
 
 function bundleLaunchPreparationScopeKey(input: {
@@ -1900,6 +1619,7 @@ function bundleLaunchPreparationScopeKey(input: {
           activePreview.description,
           activePreview.imageFileName,
           activePreview.devWalletPubkey,
+          activePreview.devAmountSol,
           activePreview.serviceFeeSol,
           activePreview.devWalletFeesSol,
           activePreview.bundleWallets
@@ -1911,6 +1631,7 @@ function bundleLaunchPreparationScopeKey(input: {
           activePreview.socials.website ?? "",
           activePreview.socials.telegram ?? "",
           activePreview.socials.twitter ?? "",
+          activePreview.socials.github ?? "",
         ].join("::")
       : "no-launch-preview";
 
@@ -1951,6 +1672,10 @@ function bundleSwapPreparationScopeKey({
 
 function feeWalletPubkeyForRoster(walletRoster: BrowserWalletEntry[]) {
   return walletRoster.find((wallet) => wallet.role === "dev")?.pubkey ?? null;
+}
+
+function walletIndexLabel(index: number) {
+  return String(index + 1);
 }
 
 function bundleLaunchPreparationNonce(pendingPlan: PendingPlan | null) {
@@ -2045,29 +1770,6 @@ function swapIntentWalletCount(message: string) {
     : null;
 }
 
-function addMockWallet(current: BrowserWalletEntry[]) {
-  const nextIndex = current.filter((wallet) => wallet.role === "bundle").length + 1;
-
-  return [
-    ...current,
-    {
-      id: `bundle-${nextIndex}`,
-      pubkey: `BndlWallet...new${nextIndex}`,
-      privateKey: demoPrivateKeyForIndex(nextIndex),
-      solBalance: 0.75,
-      tokenBalance: 0,
-      pctOfSupply: 0,
-      role: "bundle" as const,
-    },
-  ];
-}
-
-function demoPrivateKeyForIndex(index: number) {
-  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  const suffix = alphabet[index % alphabet.length];
-  return `4DemoPrivateKeyNew${suffix}${"1".repeat(44)}`;
-}
-
 function mergeImportedWallets(
   current: BrowserWalletEntry[],
   importedWallets: BrowserWalletEntry[],
@@ -2149,53 +1851,4 @@ function walletStatusLabel(
   }
 
   return "Ready";
-}
-
-function metricValues(preview: ActivePreview | null) {
-  if (preview?.kind === "bundle_swap") {
-    return [
-      { label: "Swap fee", value: `${preview.serviceFeeSol.toFixed(2)} SOL` },
-      { label: "Ready", value: `${preview.readyWallets}/${preview.walletCount}` },
-      { label: "Skipped", value: String(preview.skippedWallets) },
-    ];
-  }
-
-  if (preview?.kind === "volume_bot") {
-    return [
-      { label: "Makers", value: String(preview.makers) },
-      { label: "Volume fee", value: `${preview.serviceFeeSol.toFixed(3)} SOL` },
-      {
-        label: "Est. total",
-        value: `${preview.estimatedTotalFeesSol.toFixed(2)} SOL`,
-      },
-    ];
-  }
-
-  if (preview?.kind === "launch_volume_sequence") {
-    return [
-      { label: "Template", value: preview.templateName },
-      { label: "Delay", value: `${preview.delayMinutes} min` },
-      { label: "Makers", value: String(preview.volume.makers) },
-    ];
-  }
-
-  if (preview?.kind === "bundle_launch") {
-    return [
-      { label: "Launch fee", value: `${preview.serviceFeeSol.toFixed(2)} SOL` },
-      {
-        label: "Bundle buys",
-        value: `${preview.totalBuysSol.toFixed(2)} SOL`,
-      },
-      {
-        label: "Dev fees",
-        value: `${preview.devWalletFeesSol.toFixed(2)} SOL`,
-      },
-    ];
-  }
-
-  return [
-    { label: "Launch fee", value: "0.10 SOL" },
-    { label: "Swap fee", value: "0.10 SOL" },
-    { label: "Volume fee", value: "0.025 SOL" },
-  ];
 }

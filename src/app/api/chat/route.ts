@@ -28,6 +28,7 @@ import {
   type Draft,
   type PendingPlan,
 } from "@/lib/agent/mock-chat";
+import type { LaunchIntakeDraft } from "@/lib/agent/launch-intake";
 import {
   appendAuditRecord,
   auditRecordForRejectedPrivateKey,
@@ -40,6 +41,7 @@ import { consumeExecuteAttempt } from "@/lib/rate-limit";
 import { VOLUME_BOT_SELL_STRATEGY_LEG_LIMIT } from "@/lib/smithii/types";
 import type {
   LaunchWalletSelection,
+  PublicWalletRow,
   SwapWalletSelection,
   VolumeWalletSelection,
 } from "@/lib/wallet-roster";
@@ -49,6 +51,8 @@ type ChatRequest = {
   pendingPlan?: unknown;
   draft?: unknown;
   launchWalletSelection?: unknown;
+  launchWalletRows?: unknown;
+  launchImageFileName?: unknown;
   swapWalletSelection?: unknown;
   volumeWalletSelection?: unknown;
   globalSettings?: unknown;
@@ -152,6 +156,24 @@ export async function POST(request: Request) {
     );
   }
 
+  const launchWalletRows = parseLaunchWalletRows(body.launchWalletRows);
+  if (launchWalletRows === "invalid") {
+    return NextResponse.json(
+      { error: "Invalid launch wallet rows." },
+      { status: 400 },
+    );
+  }
+
+  const launchImageFileName = parseLaunchImageFileName(
+    body.launchImageFileName,
+  );
+  if (launchImageFileName === "invalid") {
+    return NextResponse.json(
+      { error: "Invalid launch image filename." },
+      { status: 400 },
+    );
+  }
+
   const swapWalletSelection = parseSwapWalletSelection(body.swapWalletSelection);
   if (swapWalletSelection === "invalid") {
     return NextResponse.json(
@@ -230,6 +252,8 @@ export async function POST(request: Request) {
     pendingPlan,
     draft,
     launchWalletSelection,
+    launchWalletRows,
+    launchImageFileName,
     swapWalletSelection,
     volumeWalletSelection,
     globalSettings: normalizeGlobalSettings(body.globalSettings),
@@ -343,6 +367,56 @@ function parseLaunchWalletSelection(
   };
 }
 
+function parseLaunchWalletRows(
+  value: unknown,
+): PublicWalletRow[] | "invalid" {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    return "invalid";
+  }
+
+  const rows = value.map((row) => {
+    if (
+      !isRecord(row) ||
+      typeof row.id !== "string" ||
+      typeof row.pubkey !== "string" ||
+      (row.role !== "dev" && row.role !== "bundle") ||
+      !nonNegativeNumber(row.solBalance) ||
+      !nonNegativeNumber(row.tokenBalance) ||
+      !nonNegativeNumber(row.pctOfSupply)
+    ) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      pubkey: row.pubkey,
+      role: row.role,
+      solBalance: row.solBalance,
+      tokenBalance: row.tokenBalance,
+      pctOfSupply: row.pctOfSupply,
+    };
+  });
+
+  if (rows.some((row) => row === null)) {
+    return "invalid";
+  }
+
+  return rows as PublicWalletRow[];
+}
+
+function parseLaunchImageFileName(value: unknown): string | null | "invalid" {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return "invalid";
+  }
+  return value.trim();
+}
+
 function parseSwapWalletSelection(
   value: unknown,
 ): SwapWalletSelection | null | "invalid" {
@@ -415,6 +489,18 @@ function parseDraft(value: unknown): Draft | null | "invalid" {
 
   if (!isRecord(value) || !isRecord(value.data)) {
     return "invalid";
+  }
+
+  if (value.tool === "launch_intake") {
+    const data = parseLaunchIntakeDraftData(value.data);
+    if (data === "invalid") {
+      return "invalid";
+    }
+
+    return {
+      tool: "launch_intake",
+      data,
+    };
   }
 
   if (value.tool === "bundle_swap") {
@@ -536,6 +622,154 @@ function parseBundleLaunchDraftData(
   }
 
   return data;
+}
+
+function parseLaunchIntakeDraftData(
+  value: Record<string, unknown>,
+): LaunchIntakeDraft["data"] | "invalid" {
+  const data: LaunchIntakeDraft["data"] = {
+    bundleAllocations: [],
+    socials: {},
+    socialsSkipped: false,
+    walletIndexesUsed: false,
+  };
+
+  if (value.launchpad !== undefined) {
+    if (value.launchpad !== "pumpfun") {
+      return "invalid";
+    }
+    data.launchpad = value.launchpad;
+  }
+
+  for (const key of ["tokenName", "symbol", "description", "imageFileName"] as const) {
+    if (value[key] !== undefined) {
+      if (typeof value[key] !== "string") {
+        return "invalid";
+      }
+      data[key] = value[key];
+    }
+  }
+
+  if (value.devWallet !== undefined) {
+    const devWallet = parseLaunchIntakeWalletReference(value.devWallet);
+    if (devWallet === "invalid") {
+      return "invalid";
+    }
+    data.devWallet = devWallet;
+  }
+
+  if (value.devAmountSol !== undefined) {
+    if (!numberField(value.devAmountSol)) {
+      return "invalid";
+    }
+    data.devAmountSol = value.devAmountSol;
+  }
+
+  if (value.requestedBundleWalletCount !== undefined) {
+    if (
+      typeof value.requestedBundleWalletCount !== "number" ||
+      !Number.isInteger(value.requestedBundleWalletCount) ||
+      value.requestedBundleWalletCount < 1 ||
+      value.requestedBundleWalletCount > 15
+    ) {
+      return "invalid";
+    }
+    data.requestedBundleWalletCount = value.requestedBundleWalletCount;
+  }
+
+  if (value.bundleAllocations !== undefined) {
+    if (!Array.isArray(value.bundleAllocations)) {
+      return "invalid";
+    }
+    const allocations = value.bundleAllocations.map((allocation) => {
+      if (!isRecord(allocation) || !numberField(allocation.buyAmountSol)) {
+        return null;
+      }
+      const wallet = parseLaunchIntakeWalletReference(allocation.wallet);
+      return wallet === "invalid" ? null : { wallet, buyAmountSol: allocation.buyAmountSol };
+    });
+    if (allocations.some((allocation) => allocation === null)) {
+      return "invalid";
+    }
+    data.bundleAllocations = allocations as LaunchIntakeDraft["data"]["bundleAllocations"];
+  }
+
+  if (value.socials !== undefined) {
+    if (!isRecord(value.socials)) {
+      return "invalid";
+    }
+    const socials = parseLaunchIntakeSocials(value.socials);
+    if (socials === "invalid") {
+      return "invalid";
+    }
+    data.socials = socials;
+  }
+
+  if (value.socialsSkipped !== undefined) {
+    if (typeof value.socialsSkipped !== "boolean") {
+      return "invalid";
+    }
+    data.socialsSkipped = value.socialsSkipped;
+  }
+
+  if (value.walletIndexesUsed !== undefined) {
+    if (typeof value.walletIndexesUsed !== "boolean") {
+      return "invalid";
+    }
+    data.walletIndexesUsed = value.walletIndexesUsed;
+  }
+
+  return data;
+}
+
+function parseLaunchIntakeWalletReference(value: unknown) {
+  if (!isRecord(value) || typeof value.kind !== "string") {
+    return "invalid";
+  }
+  if (value.kind === "index") {
+    if (
+      typeof value.index !== "number" ||
+      !Number.isInteger(value.index) ||
+      value.index < 1
+    ) {
+      return "invalid";
+    }
+    return {
+      kind: "index" as const,
+      index: value.index,
+      ...(typeof value.resolvedPubkey === "string"
+        ? { resolvedPubkey: value.resolvedPubkey }
+        : {}),
+    };
+  }
+  if (value.kind === "pubkey") {
+    if (typeof value.pubkey !== "string" || value.pubkey.trim().length === 0) {
+      return "invalid";
+    }
+    return {
+      kind: "pubkey" as const,
+      pubkey: value.pubkey,
+      ...(typeof value.resolvedPubkey === "string"
+        ? { resolvedPubkey: value.resolvedPubkey }
+        : {}),
+    };
+  }
+  return "invalid";
+}
+
+function parseLaunchIntakeSocials(
+  value: Record<string, unknown>,
+): LaunchIntakeDraft["data"]["socials"] | "invalid" {
+  const socials: LaunchIntakeDraft["data"]["socials"] = {};
+  for (const key of ["website", "telegram", "twitter", "github"] as const) {
+    if (value[key] !== undefined) {
+      if (typeof value[key] !== "string") {
+        return "invalid";
+      }
+      socials[key] = value[key];
+    }
+  }
+  return socials;
 }
 
 function parseBundleSwapDraftData(
@@ -905,6 +1139,10 @@ function completeVolumeBotDraftNeedsWallet(draft: Draft | null) {
 
 function numberField(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function nonNegativeNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function isConfirmMessage(message: string) {

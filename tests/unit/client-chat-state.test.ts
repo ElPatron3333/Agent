@@ -150,6 +150,7 @@ function bundleLaunchPreview(): ActivePreview {
     serviceFeeSol: 0.1,
     devWalletFeesSol: 0.1,
     devWalletPubkey: "DevWallet...91nP",
+    devAmountSol: 0,
     bundleWallets: [{ pubkey: "BndlWallet...4kd9", buyAmountSol: 0.1 }],
     imageFileName: "leak.png",
     socialsEnabled: false,

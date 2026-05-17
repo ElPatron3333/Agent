@@ -1,3 +1,5 @@
+import { Keypair } from "@solana/web3.js";
+
 export type BrowserWalletEntry = {
   id: string;
   pubkey: string;
@@ -181,40 +183,116 @@ export function parsePrivateKeyCsv(csv: string): BrowserWalletEntry[] {
   const header = parseCsvRow(rows[0] ?? "");
   const privateKeyIndex = header.indexOf("privateKey");
   if (privateKeyIndex === -1) {
-    throw new Error("CSV must have a single privateKey header.");
+    throw new Error("CSV must include a privateKey header.");
   }
+  const roleIndex = header.indexOf("role");
+  const pubkeyIndex = header.findIndex((field) =>
+    ["pubkey", "publicKey"].includes(field),
+  );
 
-  const privateKeys = rows
-    .slice(1)
-    .map((row) => parseCsvRow(row)[privateKeyIndex] ?? "");
-  if (privateKeys.length === 0) {
+  const parsedRows = rows.slice(1).map((row) => parseCsvRow(row));
+  if (parsedRows.length === 0) {
     throw new Error("CSV must include at least one private key.");
   }
 
-  return privateKeys.map((privateKey, index) => {
+  return parsedRows.map((fields, index) => {
     const rowNumber = index + 2;
+    const privateKey = fields[privateKeyIndex] ?? "";
     if (!isBase58PrivateKeyShape(privateKey)) {
       throw new Error(`Private key on row ${rowNumber} must be base58.`);
     }
 
+    const role = parseWalletRole(fields[roleIndex], index, rowNumber);
+    const explicitPubkey = fields[pubkeyIndex]?.trim();
+    const derivedPubkey = publicKeyFromPrivateKey(privateKey);
+
     return {
       id: `imported-${index + 1}`,
-      pubkey: `Imported wallet ${index + 1}`,
+      pubkey:
+        explicitPubkey ||
+        derivedPubkey ||
+        `Imported ${role} wallet ${index + 1}`,
       privateKey,
       solBalance: 0,
       tokenBalance: 0,
       pctOfSupply: 0,
-      role: "bundle",
+      role,
     };
   });
 }
 
 export function exportPrivateKeyCsv(roster: BrowserWalletEntry[]): string {
-  return ["privateKey", ...roster.map((wallet) => wallet.privateKey)].join("\n");
+  return [
+    "role,privateKey",
+    ...roster.map((wallet) => `${wallet.role},${wallet.privateKey}`),
+  ].join("\n");
 }
 
 function isBase58PrivateKeyShape(value: string) {
   return /^[1-9A-HJ-NP-Za-km-z]{32,128}$/.test(value);
+}
+
+function parseWalletRole(
+  value: string | undefined,
+  rowIndex: number,
+  rowNumber: number,
+): BrowserWalletEntry["role"] {
+  if (value === undefined || value.trim() === "") {
+    return rowIndex === 0 ? "dev" : "bundle";
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "dev" || normalized === "bundle") {
+    return normalized;
+  }
+
+  throw new Error(`Wallet role on row ${rowNumber} must be dev or bundle.`);
+}
+
+function publicKeyFromPrivateKey(privateKey: string) {
+  try {
+    const secretKey = decodeBase58(privateKey);
+    if (secretKey.length === 64) {
+      return Keypair.fromSecretKey(secretKey).publicKey.toBase58();
+    }
+    if (secretKey.length === 32) {
+      return Keypair.fromSeed(secretKey).publicKey.toBase58();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const ZERO_BIGINT = BigInt(0);
+const BYTE_MASK_BIGINT = BigInt(255);
+const BYTE_SHIFT_BIGINT = BigInt(8);
+const BASE58_RADIX_BIGINT = BigInt(58);
+const BASE58_VALUES = new Map(
+  [...BASE58_ALPHABET].map((char, index) => [char, BigInt(index)]),
+);
+
+function decodeBase58(value: string) {
+  let decoded = ZERO_BIGINT;
+  for (const char of value) {
+    const digit = BASE58_VALUES.get(char);
+    if (digit === undefined) {
+      throw new Error("Invalid base58 character.");
+    }
+    decoded = decoded * BASE58_RADIX_BIGINT + digit;
+  }
+
+  const bytes: number[] = [];
+  while (decoded > ZERO_BIGINT) {
+    bytes.unshift(Number(decoded & BYTE_MASK_BIGINT));
+    decoded >>= BYTE_SHIFT_BIGINT;
+  }
+
+  const leadingZeroes = [...value].findIndex((char) => char !== "1");
+  const zeroCount = leadingZeroes === -1 ? value.length : leadingZeroes;
+  return Uint8Array.from([...Array<number>(zeroCount).fill(0), ...bytes]);
 }
 
 function compareSelectionPriority(

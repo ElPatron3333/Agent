@@ -56,7 +56,7 @@ describe("Smithii Bundle Launch browser wiring", () => {
     });
     expect(prepared.packet.executorInput.metadata.file).toBe(metadataFile);
     expect(prepared.packet.executorInput.mintKeypair).toBe(mintKeypair);
-    expect(prepared.packet.executorInput.devAmount).toBeCloseTo(0.15);
+    expect(prepared.packet.executorInput.devAmount).toBeCloseTo(0.5);
     expect(prepared.packet.executorInput.buyers).toEqual([
       { pk: "SECRET_BUYER_PK_1", amount: 0.2 },
       { pk: "SECRET_BUYER_PK_2", amount: 0.3 },
@@ -72,7 +72,7 @@ describe("Smithii Bundle Launch browser wiring", () => {
       planId: prepared.packet.plan.planId,
       idempotencyKey: prepared.packet.plan.idempotencyKey,
       mint: mintKeypair.publicKey.toBase58(),
-      devAmount: 0.15,
+      devAmount: 0.5,
       buyerCount: 2,
       expectedFeesLamports: "350000000",
       isTokenPregenerated: true,
@@ -122,7 +122,7 @@ describe("Smithii Bundle Launch browser wiring", () => {
         createAndSnipeToken: async (input) => {
           expect(input).toMatchObject({
             mintKeypair,
-            devAmount: 0.25,
+            devAmount: 0.5,
             buyers: [
               { pk: "SECRET_BUYER_PK_1", amount: 0.2 },
               { pk: "SECRET_BUYER_PK_2", amount: 0.3 },
@@ -217,6 +217,7 @@ function bundleLaunchPreview(
     serviceFeeSol: 0.1,
     devWalletFeesSol: 0.35,
     devWalletPubkey: "DevWallet111",
+    devAmountSol: 0.5,
     bundleWallets: [
       { pubkey: "BuyerWallet111", buyAmountSol: 0.2 },
       { pubkey: "BuyerWallet222", buyAmountSol: 0.3 },

@@ -99,11 +99,7 @@ export function prepareBundleLaunchBrowserExecution({
     buyers.push({ pk: rosterWallet.privateKey, amount: wallet.buyAmountSol });
   }
 
-  const pregenerateFeeSol = preview.modifiers.pregenerateTokenAddress ? 0.1 : 0;
-  const devAmount = Math.max(
-    0,
-    roundSol(preview.devWalletFeesSol - preview.serviceFeeSol - pregenerateFeeSol),
-  );
+  const devAmount = preview.devAmountSol;
   const expectedFeesLamports = Math.round(
     preview.devWalletFeesSol * 1_000_000_000,
   ).toString();
@@ -193,10 +189,6 @@ function validateBundleLaunchInputs({
   }
 
   return { status: "ready", preview: activePreview };
-}
-
-function roundSol(value: number) {
-  return Math.round(value * 1_000_000_000) / 1_000_000_000;
 }
 
 function blocked(reason: string): BundleLaunchBrowserBlockedReadiness {

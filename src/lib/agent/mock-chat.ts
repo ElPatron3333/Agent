@@ -10,6 +10,11 @@ import {
   prepareVolumeBot,
 } from "@/lib/smithii/mock";
 import { DEFAULT_GLOBAL_SETTINGS } from "@/lib/global-settings";
+import {
+  advanceLaunchIntake,
+  launchIntakePreviewInput,
+  type LaunchIntakeDraft,
+} from "@/lib/agent/launch-intake";
 import { templateForMessage } from "@/lib/smithii/templates";
 import {
   liveBoundaryForPreview,
@@ -26,6 +31,7 @@ import type {
 } from "@/lib/smithii/types";
 import type {
   LaunchWalletSelection,
+  PublicWalletRow,
   SwapWalletSelection,
   VolumeWalletSelection,
 } from "@/lib/wallet-roster";
@@ -62,6 +68,7 @@ export type BundleLaunchDraft = {
       website?: string;
       telegram?: string;
       twitter?: string;
+      github?: string;
     };
     socialStep?: "website" | "telegram" | "twitter" | "done";
     cashbackCoin?: boolean;
@@ -102,7 +109,11 @@ export type VolumeBotDraft = {
   };
 };
 
-export type Draft = BundleLaunchDraft | BundleSwapDraft | VolumeBotDraft;
+export type Draft =
+  | BundleLaunchDraft
+  | LaunchIntakeDraft
+  | BundleSwapDraft
+  | VolumeBotDraft;
 
 export type ActivePreview =
   | {
@@ -126,7 +137,10 @@ export type ActivePreview =
         website?: string;
         telegram?: string;
         twitter?: string;
+        github?: string;
       };
+      socialsSkipped?: boolean;
+      devAmountSol: number;
       modifiers: {
         cashbackCoin: boolean;
         useDifferentBlocks: boolean;
@@ -211,6 +225,8 @@ export type MockChatInput = {
   pendingPlan?: PendingPlan | null;
   draft?: Draft | null;
   launchWalletSelection?: LaunchWalletSelection | null;
+  launchWalletRows?: PublicWalletRow[];
+  launchImageFileName?: string | null;
   swapWalletSelection?: SwapWalletSelection | null;
   volumeWalletSelection?: VolumeWalletSelection | null;
   globalSettings?: GlobalSettings | null;
@@ -243,6 +259,8 @@ function handleMockChatCore({
   pendingPlan = null,
   draft = null,
   launchWalletSelection = null,
+  launchWalletRows = [],
+  launchImageFileName = null,
   swapWalletSelection = null,
   volumeWalletSelection = null,
   globalSettings = null,
@@ -256,6 +274,17 @@ function handleMockChatCore({
       rawMessage: message.trim(),
       now,
       launchWalletSelection,
+      globalSettings: resolvedGlobalSettings,
+    });
+  }
+
+  if (draft?.tool === "launch_intake") {
+    return collectLaunchIntake({
+      draft,
+      rawMessage: message.trim(),
+      now,
+      launchWalletRows,
+      launchImageFileName,
       globalSettings: resolvedGlobalSettings,
     });
   }
@@ -316,6 +345,17 @@ function handleMockChatCore({
       nextSwapPrompt(draft),
       draft,
     );
+  }
+
+  if (isStructuredLaunchIntent(message)) {
+    return collectLaunchIntake({
+      draft: null,
+      rawMessage: message.trim(),
+      now,
+      launchWalletRows,
+      launchImageFileName,
+      globalSettings: resolvedGlobalSettings,
+    });
   }
 
   if (isLaunchIntent(normalized)) {
@@ -571,6 +611,110 @@ function prepareLaunchVolumeSequencePreview({
       },
       globalSettings,
       summary: sequence.preview.summaryMd,
+    },
+    executionStatus: "Waiting for confirm",
+    draft: null,
+  };
+}
+
+function collectLaunchIntake({
+  draft,
+  rawMessage,
+  now,
+  launchWalletRows,
+  launchImageFileName,
+  globalSettings,
+}: {
+  draft: LaunchIntakeDraft | null;
+  rawMessage: string;
+  now: number;
+  launchWalletRows: PublicWalletRow[];
+  launchImageFileName: string | null;
+  globalSettings: GlobalSettings;
+}): MockChatResult {
+  const intake = advanceLaunchIntake({
+    draft,
+    message: rawMessage,
+    walletRows: launchWalletRows,
+    uploadedImageFileName: launchImageFileName,
+  });
+
+  if (!intake.ready) {
+    return {
+      assistantMessage: { role: "assistant", text: intake.prompt },
+      pendingPlan: null,
+      activePreview: null,
+      executionStatus: "Collecting launch fields",
+      draft: intake.draft,
+    };
+  }
+
+  return prepareLaunchIntakePreview(
+    now,
+    intake.draft,
+    intake.prompt,
+    globalSettings,
+  );
+}
+
+function prepareLaunchIntakePreview(
+  now: number,
+  draft: LaunchIntakeDraft,
+  mappingPrompt: string,
+  globalSettings: GlobalSettings,
+): MockChatResult {
+  const input = launchIntakePreviewInput(draft);
+  const socialsEnabled = Object.keys(input.socials).length > 0;
+  const modifiers = {
+    cashbackCoin: false,
+    useDifferentBlocks: true,
+    pregenerateTokenAddress: false,
+  };
+  const plan = prepareBundleLaunch({
+    dex: "pumpfun",
+    token: {
+      name: input.tokenName,
+      symbol: input.symbol,
+      description: input.description,
+      imageFileName: input.imageFileName,
+      socialsEnabled,
+      socials: input.socials,
+    },
+    modifiers,
+    devWalletPubkey: input.devWalletPubkey,
+    bundleWallets: input.bundleWallets,
+    globalSettings,
+  });
+  return {
+    assistantMessage: {
+      role: "assistant",
+      text: `${mappingPrompt} Bundle Launch preview is ready. Type confirm or launch to execute the mock handoff.`,
+    },
+    pendingPlan: {
+      id: plan.planId,
+      tool: "bundle_launch",
+      createdAt: now,
+    },
+    activePreview: {
+      kind: "bundle_launch",
+      planId: plan.planId,
+      token: `${input.tokenName} / ${input.symbol}`,
+      tokenName: input.tokenName,
+      tokenSymbol: input.symbol,
+      description: input.description,
+      totalBuysSol: plan.preview.totalBuysSol,
+      serviceFeeSol: plan.preview.smithiiServiceFeeSol,
+      devWalletFeesSol: plan.preview.feesFromDevWalletSol,
+      devWalletPubkey: input.devWalletPubkey,
+      devAmountSol: input.devAmountSol,
+      bundleWallets: input.bundleWallets,
+      imageFileName: input.imageFileName,
+      socialsEnabled,
+      socialsSkipped: input.socialsSkipped,
+      socials: input.socials,
+      modifiers,
+      globalSettings,
+      summary: plan.preview.summaryMd,
     },
     executionStatus: "Waiting for confirm",
     draft: null,
@@ -922,6 +1066,12 @@ function prepareLaunchPreview(
     bundleWallets: walletSelection.bundleWallets,
     globalSettings,
   });
+  const devAmountSol = Math.max(
+    0,
+    plan.preview.feesFromDevWalletSol -
+      plan.preview.smithiiServiceFeeSol -
+      plan.preview.pregenerateFeeSol,
+  );
 
   return {
     assistantMessage: {
@@ -944,9 +1094,11 @@ function prepareLaunchPreview(
       serviceFeeSol: plan.preview.smithiiServiceFeeSol,
       devWalletFeesSol: plan.preview.feesFromDevWalletSol,
       devWalletPubkey: walletSelection.devWalletPubkey,
+      devAmountSol,
       bundleWallets: walletSelection.bundleWallets,
       imageFileName: draft.data.imageFileName,
       socialsEnabled: draft.data.socialsEnabled,
+      socialsSkipped: !draft.data.socialsEnabled,
       socials: stripEmptySocials(draft.data.socials),
       modifiers: {
         cashbackCoin: draft.data.cashbackCoin,
@@ -1482,6 +1634,7 @@ type RequiredBundleLaunchDraft = {
       website?: string;
       telegram?: string;
       twitter?: string;
+      github?: string;
     };
     cashbackCoin: boolean;
     useDifferentBlocks: boolean;
@@ -1990,6 +2143,7 @@ function stripEmptySocials(
     ...(socials?.website ? { website: socials.website } : {}),
     ...(socials?.telegram ? { telegram: socials.telegram } : {}),
     ...(socials?.twitter ? { twitter: socials.twitter } : {}),
+    ...(socials?.github ? { github: socials.github } : {}),
   };
 }
 
@@ -2015,6 +2169,16 @@ function isConfirmIntent(message: string) {
 
 function isLaunchIntent(message: string) {
   return /\b(launch|bundle launch|token)\b/.test(message);
+}
+
+function isStructuredLaunchIntent(message: string) {
+  const normalized = message.trim().toLowerCase();
+  return (
+    /\b(launch|create|deploy)\b/.test(normalized) &&
+    (/\bpump\s*\.?fun\b|\bpumpfun\b/.test(normalized) ||
+      /\bwallet\s+\d{1,2}\b/.test(normalized)) &&
+    (/\bbundle\b/.test(normalized) || /\bbuys?\s+\d/.test(normalized))
+  );
 }
 
 function isSwapIntent(message: string) {

@@ -44,6 +44,53 @@ describe("mock chat agent", () => {
     expect(result.executionStatus).toBe("Collecting launch fields");
   });
 
+  it("collects structured launch intake from one message before image upload", () => {
+    const result = handleMockChat({
+      message:
+        "launch a coin called Shitcoin on Pumpfun, bundle it with 2 wallets. Wallet 1 is dev and uses 0.5 SOL. Wallet 2 buys 2 SOL. Wallet 3 buys 1 SOL. Description: Test launch. Skip socials.",
+      now,
+      launchWalletRows: launchIntakeWalletRows(),
+      launchImageFileName: null,
+    });
+
+    expect(result.executionStatus).toBe("Collecting launch fields");
+    expect(result.pendingPlan).toBeNull();
+    expect(result.activePreview).toBeNull();
+    expect(result.draft?.tool).toBe("launch_intake");
+    expect(result.assistantMessage.text).toBe(
+      "I have the launch details, but I need the token image before I can prepare the preview. Upload the image, then I will continue.",
+    );
+  });
+
+  it("prepares a structured intake preview with exact per-wallet buys", () => {
+    const result = handleMockChat({
+      message:
+        "launch a coin called Shitcoin on Pumpfun, bundle it with 2 wallets. Wallet 1 is dev and uses 0.5 SOL. Wallet 2 buys 2 SOL. Wallet 3 buys 1 SOL. Description: Test launch. Skip socials.",
+      now,
+      launchWalletRows: launchIntakeWalletRows(),
+      launchImageFileName: "shitcoin.png",
+    });
+
+    expect(result.pendingPlan?.tool).toBe("bundle_launch");
+    expect(result.activePreview).toMatchObject({
+      kind: "bundle_launch",
+      tokenName: "Shitcoin",
+      tokenSymbol: "SHIT",
+      devWalletPubkey: "DevPubkey111",
+      devAmountSol: 0.5,
+      bundleWallets: [
+        { pubkey: "BuyerPubkey222", buyAmountSol: 2 },
+        { pubkey: "BuyerPubkey333", buyAmountSol: 1 },
+      ],
+      imageFileName: "shitcoin.png",
+      socialsEnabled: false,
+      socialsSkipped: true,
+    });
+    expect(result.assistantMessage.text).toContain(
+      "Wallet indexes were mapped to the imported wallet table order.",
+    );
+  });
+
   it("keeps prefilled wallet count through the full launch preview flow", () => {
     const started = handleMockChat({
       message: "launch a token called Blue Frog with a 5-wallet bundle",
@@ -263,6 +310,7 @@ describe("mock chat agent", () => {
       serviceFeeSol: 0.1,
       devWalletFeesSol: 0.2,
       devWalletPubkey: "DevWallet...91nP",
+      devAmountSol: 0,
       bundleWallets: [
         { pubkey: "BndlWallet...1", buyAmountSol: 0.5 },
         { pubkey: "BndlWallet...2", buyAmountSol: 0.5 },
@@ -270,6 +318,7 @@ describe("mock chat agent", () => {
       ],
       imageFileName: "blue-frog.png",
       socialsEnabled: true,
+      socialsSkipped: false,
       socials: {
         website: "https://bluefrog.example",
         twitter: "https://x.com/bluefrog",
@@ -1117,4 +1166,12 @@ function launchDraftWaitingForWebsite() {
     socialsEnabled: true,
     socialStep: "website" as const,
   };
+}
+
+function launchIntakeWalletRows() {
+  return [
+    { id: "imported-1", pubkey: "DevPubkey111", role: "dev" as const, solBalance: 0, tokenBalance: 0, pctOfSupply: 0 },
+    { id: "imported-2", pubkey: "BuyerPubkey222", role: "bundle" as const, solBalance: 0, tokenBalance: 0, pctOfSupply: 0 },
+    { id: "imported-3", pubkey: "BuyerPubkey333", role: "bundle" as const, solBalance: 0, tokenBalance: 0, pctOfSupply: 0 },
+  ];
 }
